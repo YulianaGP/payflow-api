@@ -1,8 +1,18 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
 dist/
+.next/
+out/
+build/
+
+# Environment variables — NEVER commit these
 .env
 .env.local
-*.env
+.env.*.local
 
 # Prisma
 prisma/migrations/
@@ -10,7 +20,19 @@ prisma/migrations/
 # Logs
 *.log
 npm-debug.log*
+pino-logs/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Turbo
+.turbo/
+
+# Testing
+coverage/

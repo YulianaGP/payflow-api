@@ -1,0 +1,42 @@
+{
+  "name": "@payflow/api",
+  "version": "1.0.0",
+  "description": "PayFlow — Hono REST API",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "@hono/swagger-ui": "^0.6.1",
+    "@hono/zod-validator": "^0.7.6",
+    "@hono/rate-limiter": "^0.4.0",
+    "@prisma/client": "^5.0.0",
+    "hono": "^4.12.14",
+    "zod": "^3.22.0",
+    "pino": "^9.0.0",
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/supertest": "^6.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "prisma": "^5.0.0",
+    "supertest": "^7.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.0.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "rules": {
+    "no-console": "warn",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='$queryRawUnsafe']",
+        "message": "Use $queryRaw with tagged template literals instead of $queryRawUnsafe — raw strings are vulnerable to SQL injection. Example: await tx.$queryRaw`SELECT * FROM payments WHERE id = ${id} FOR UPDATE`"
+      }
+    ],
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+  },
+  "env": {
+    "node": true,
+    "es2022": true
+  }
+}
