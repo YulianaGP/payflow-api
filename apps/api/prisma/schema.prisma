@@ -1,0 +1,389 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  REFUNDED
+  DISPUTED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  PAUSED
+  CANCELED
+}
+
+enum TransactionType {
+  TRANSFER
+  DEPOSIT
+  WITHDRAWAL
+  REFUND
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+// ─────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String?
+  role         UserRole  @default(USER)
+  deletedAt    DateTime? // soft delete for GDPR right to erasure
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  merchantId String?
+  merchant   Merchant? @relation(fields: [merchantId], references: [id])
+
+  apiKeys        ApiKey[]
+  twoFactorAuth  TwoFactorAuth?
+  revokedSessions RevokedSession[]
+  consent        UserConsent?
+  subscriptions  Subscription[]
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  keyHash   String    @unique  // sha256 of the real key — never store plain text
+  prefix    String              // pk_live_ or pk_test_
+  name      String
+  revokedAt DateTime?
+  lastUsedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([keyHash])
+}
+
+model TwoFactorAuth {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  encryptedSecret String  // AES-256 encrypted TOTP secret
+  enabledAt      DateTime @default(now())
+}
+
+// Sessions invalidated after security incident
+// jti = JWT ID claim — checked on every authenticated request
+model RevokedSession {
+  jti       String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  revokedAt DateTime @default(now())
+  expiresAt DateTime // cleaned up by weekly cron once past expiry
+
+  @@index([expiresAt])
+}
+
+// LATAM data protection compliance
+// Required by: Ley 25.326 (Argentina), LFPDPPP (Mexico), Ley 1581 (Colombia)
+model UserConsent {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  acceptedAt DateTime @default(now())
+  ipAddress  String
+  userAgent  String
+  version    String   @default("1.0") // terms version accepted
+}
+
+// ─────────────────────────────────────────────
+// MULTI-TENANT
+// ─────────────────────────────────────────────
+
+model Merchant {
+  id               String  @id @default(cuid())
+  name             String
+  paymentProvider  String  // 'mercadopago' | 'stripe' — per merchant, not global
+  fallbackProvider String? // only used if primary fails with network error
+  currency         String  @default("USD")
+  webhookSecret    String  // HMAC secret for signing outgoing webhooks
+  refundWindowDays Int     @default(180) // max days to allow refunds
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  users         User[]
+  payments      Payment[]
+  subscriptions Subscription[]
+  webhooks      Webhook[]
+  invoices      Invoice[]
+  paymentAttempts PaymentAttempt[]
+}
+
+// ─────────────────────────────────────────────
+// PAYMENTS — core financial logic
+// ─────────────────────────────────────────────
+
+model Payment {
+  id               String        @id @default(cuid())
+  merchantId       String
+  merchant         Merchant      @relation(fields: [merchantId], references: [id])
+  orderId          String        // internal order reference
+  status           PaymentStatus @default(PENDING)
+
+  // Amounts always in cents (integers) — NEVER floats
+  // $10.50 USD = 1050. This prevents floating point rounding errors.
+  amount           Int
+  currency         String
+
+  // Confirmed by provider webhook — must match amount/currency
+  // If mismatch: status set to REVIEW_NEEDED, admin alerted
+  confirmedAmount  Int?
+  confirmedCurrency String?
+
+  provider         String        // 'mercadopago' | 'stripe' | 'mock'
+  externalId       String?       // provider's payment ID (arrives via webhook)
+  idempotencyKey   String?       @unique
+  metadata         Json?
+  items            Json?         // array of OrderItem for multi-product orders
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  auditLogs        PaymentAuditLog[]
+  attempts         PaymentAttempt[]
+  dispute          Dispute?
+
+  // Prevents double-charging the same order
+  @@unique([merchantId, orderId])
+  @@index([status, createdAt])
+  @@index([externalId])
+}
+
+// Outbox pattern — guarantees event delivery even if server crashes mid-process
+// Rule: update Payment.status AND create OutboxEvent in the SAME $transaction
+// If either fails → full rollback. Money never changes state without a trace.
+model OutboxEvent {
+  id          String    @id @default(cuid())
+  type        String    // 'payment.success' | 'subscription.renewed' | etc.
+  payload     Json
+  attempts    Int       @default(0)
+  lastError   String?   // last error message for debugging
+  nextRetryAt DateTime? @default(now())
+  sentAt      DateTime? // null = pending. Worker queries: sentAt IS NULL AND nextRetryAt <= NOW()
+  createdAt   DateTime  @default(now())
+
+  // Retry formula: nextRetryAt = now() + (2^attempts * 1000ms) — exponential backoff
+  // After 5 failed attempts → move to DeadLetterEvent + alert admin
+  @@index([sentAt, nextRetryAt])
+}
+
+// Failed outbox events after max retries — requires manual intervention
+model DeadLetterEvent {
+  id          String   @id @default(cuid())
+  type        String
+  payload     Json
+  lastError   String
+  attempts    Int
+  createdAt   DateTime @default(now())
+}
+
+// Webhook idempotency — prevents processing the same provider event twice
+// MercadoPago and Stripe can send the same webhook multiple times (their own retries)
+// Without this: duplicate webhook = duplicate charge or duplicate subscription
+model PaymentEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  externalId  String   // provider's event/payment ID
+  eventType   String   // 'payment.approved' | 'subscription.renewed' | etc.
+  processedAt DateTime @default(now())
+
+  // THE lock: if this unique combination exists → return 200 without processing
+  // CRITICAL: always return 200, never 4xx — 4xx causes the provider to retry forever
+  @@unique([provider, externalId, eventType])
+}
+
+// Immutable audit log — records every payment status change
+// NO updatedAt — these records are NEVER modified, only appended
+model PaymentAuditLog {
+  id         String   @id @default(cuid())
+  paymentId  String
+  payment    Payment  @relation(fields: [paymentId], references: [id])
+  fromStatus String
+  toStatus   String
+  changedBy  String   // 'webhook' | 'reconciliation' | 'admin:userId' | 'system'
+  metadata   Json     // ip, userAgent, reason, adminId if applicable
+  createdAt  DateTime @default(now())
+
+  @@index([paymentId, createdAt])
+}
+
+// Fraud detection — rules need historical data to work
+// emailHash: sha256(email.toLowerCase()) — never store plain email
+// Persisted for ALL attempts including blocked ones (blocked ones are most valuable)
+model PaymentAttempt {
+  id          String   @id @default(cuid())
+  merchantId  String
+  merchant    Merchant @relation(fields: [merchantId], references: [id])
+  paymentId   String?
+  payment     Payment? @relation(fields: [paymentId], references: [id])
+  emailHash   String   // sha256(email) — privacy-safe
+  ip          String
+  userAgent   String?
+  status      String   // 'success' | 'failed' | 'blocked'
+  amount      Int
+  currency    String
+  provider    String
+  blockReason String?  // 'too_many_failures_email' | 'too_many_attempts_ip' | 'suspicious_amount'
+  createdAt   DateTime @default(now())
+
+  @@index([emailHash, createdAt])
+  @@index([ip, createdAt])
+  @@index([merchantId, createdAt])
+}
+
+// Chargebacks and disputes — handler required for both MP and Stripe
+// Without this: merchant learns about disputes from the bank, not the system
+// Merchants have 7-10 days to respond — missing the deadline = automatic loss
+model Dispute {
+  id         String   @id @default(cuid())
+  paymentId  String   @unique
+  payment    Payment  @relation(fields: [paymentId], references: [id])
+  merchantId String
+  externalId String   // dispute ID from provider
+  status     String   // 'open' | 'won' | 'lost' | 'needs_response' | 'under_review'
+  reason     String   // 'fraudulent' | 'duplicate' | 'product_not_received' | etc.
+  amount     Int
+  dueDate    DateTime // deadline to respond — alert admin immediately
+  evidence   Json?    // evidence submitted by merchant
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status, dueDate])
+}
+
+// ─────────────────────────────────────────────
+// WEBHOOKS (outgoing — PayFlow → merchant's server)
+// ─────────────────────────────────────────────
+
+model Webhook {
+  id         String    @id @default(cuid())
+  merchantId String
+  merchant   Merchant  @relation(fields: [merchantId], references: [id])
+  url        String
+  secret     String    // HMAC secret for signing deliveries
+  events     String[]  // ['payment.success', 'subscription.renewed', ...]
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  webhookId  String
+  webhook    Webhook  @relation(fields: [webhookId], references: [id])
+  eventType  String
+  payload    Json
+  statusCode Int?
+  attempts   Int      @default(0)
+  succeededAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([webhookId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// SUBSCRIPTIONS
+// ─────────────────────────────────────────────
+
+model Plan {
+  id            String   @id @default(cuid())
+  merchantId    String
+  name          String
+  description   String?
+  price         Int      // in cents
+  currency      String
+  interval      String   // 'month' | 'year'
+  intervalCount Int      @default(1)
+  trialDays     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  merchantId         String
+  merchant           Merchant           @relation(fields: [merchantId], references: [id])
+  userId             String
+  user               User               @relation(fields: [userId], references: [id])
+  planId             String
+  plan               Plan               @relation(fields: [planId], references: [id])
+  status             SubscriptionStatus @default(TRIALING)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean            @default(false)
+  trialEndsAt        DateTime?
+  gracePeriodEndsAt  DateTime?          // PAST_DUE → auto-CANCELED when this date passes
+  failedPaymentCount Int                @default(0) // dunning counter
+  creditBalance      Int                @default(0) // accumulated credit from downgrades
+  externalId         String?            // subscription ID at provider
+  provider           String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([status, gracePeriodEndsAt])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// INVOICES — pay-by-link [F3]
+// Freelancers / merchants send a link, client pays without an account
+// ─────────────────────────────────────────────
+
+model Invoice {
+  id          String    @id @default(cuid())
+  merchantId  String
+  merchant    Merchant  @relation(fields: [merchantId], references: [id])
+  amount      Int       // in cents
+  currency    String
+  description String
+  items       Json?     // optional line items
+  status      String    @default("pending") // 'pending' | 'paid' | 'expired'
+  expiresAt   DateTime?
+  paymentId   String?   // set when invoice is paid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// SYSTEM HEALTH — for /status page [B5]
+// ─────────────────────────────────────────────
+
+model StatusCheck {
+  id         String   @id @default(cuid())
+  service    String   // 'api' | 'database' | 'redis' | 'mercadopago' | 'stripe'
+  status     String   // 'operational' | 'degraded' | 'down'
+  latencyMs  Int?
+  error      String?
+  checkedAt  DateTime @default(now())
+
+  @@index([service, checkedAt])
+}
