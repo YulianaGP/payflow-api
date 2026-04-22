@@ -24,9 +24,11 @@
     "@hono/zod-validator": "^0.7.6",
     "@prisma/client": "^6.0.0",
     "hono": "^4.12.14",
-    "zod": "^3.22.0",
+    "jose": "^4.15.9",
+    "nanoid": "^5.0.0",
+    "otplib": "^13.4.0",
     "pino": "^9.0.0",
-    "nanoid": "^5.0.0"
+    "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

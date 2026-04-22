@@ -4,6 +4,7 @@ import { cors } from "hono/cors"
 import { prettyJSON } from "hono/pretty-json"
 import { authRouter } from "./routes/auth.js"
 import { keysRouter } from "./routes/keys.js"
+import { twofaRouter } from "./routes/twofa.js"
 
 export const app = new Hono()
 
@@ -26,3 +27,4 @@ app.get("/health", (c) => {
 
 app.route("/api/auth", authRouter)
 app.route("/api/keys", keysRouter)
+app.route("/api/2fa", twofaRouter)
