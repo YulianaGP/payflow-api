@@ -47,10 +47,10 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 | Área | Estado | Meta |
 |---|---|---|
-| Setup monorepo (Turborepo + TypeScript) | ✅ parcial | ✅ |
-| Schema de base de datos completo | ⏳ | ✅ |
-| Auth (login/registro + API keys) | ⏳ | ✅ |
-| 2FA TOTP para admin + JWT blacklist | ⏳ | ✅ |
+| Setup monorepo (Turborepo + TypeScript) | ✅ | ✅ |
+| Schema de base de datos completo | ✅ | ✅ |
+| Auth (login/registro + API keys) | ✅ | ✅ |
+| 2FA TOTP para admin + JWT blacklist | ✅ | ✅ |
 | PaymentService abstraction | ⏳ | ✅ |
 | MercadoPago API integration | ⏳ | ✅ |
 | Stripe API integration | ⏳ | ✅ |
@@ -1257,6 +1257,7 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 | Fecha | Día | Tarea completada | Notas |
 |---|---|---|---|
 | 2026-04-15 | Setup inicial | Proyecto base Hono + TypeScript + Prisma | Antes de este roadmap |
+| 2026-04-20 | Día 1 | Monorepo Turborepo + apps/api + apps/web + packages/payment-providers + ESLint | TypeScript strict, 0 errores |
 | | | | |
 
 ---
