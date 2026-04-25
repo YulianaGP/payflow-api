@@ -13,7 +13,7 @@ export function generateTotpUri(secret: string, email: string): string {
 }
 
 export function verifyTotpCode(secret: string, code: string): boolean {
-  return verifySync({ secret, token: code }) === true
+  return !!verifySync({ secret, token: code, epochTolerance: 1 })
 }
 
 // Encrypts the TOTP secret before saving to DB — never store it in plain text

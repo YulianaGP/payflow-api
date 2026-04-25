@@ -205,15 +205,17 @@ model DeadLetterEvent {
 // MercadoPago and Stripe can send the same webhook multiple times (their own retries)
 // Without this: duplicate webhook = duplicate charge or duplicate subscription
 model PaymentEvent {
-  id          String   @id @default(cuid())
-  provider    String
-  externalId  String   // provider's event/payment ID
-  eventType   String   // 'payment.approved' | 'subscription.renewed' | etc.
-  processedAt DateTime @default(now())
+  id              String   @id @default(cuid())
+  provider        String
+  externalEventId String   // provider's unique event ID (e.g. Stripe's evt_xxx)
+  externalId      String   // provider's payment/charge ID
+  eventType       String   // 'payment.approved' | 'subscription.renewed' | etc.
+  rawPayload      Json?    // original payload — stored for debugging
+  processedAt     DateTime @default(now())
 
-  // THE lock: if this unique combination exists → return 200 without processing
+  // Idempotency lock: provider + event ID is globally unique per provider
   // CRITICAL: always return 200, never 4xx — 4xx causes the provider to retry forever
-  @@unique([provider, externalId, eventType])
+  @@unique([provider, externalEventId])
 }
 
 // Immutable audit log — records every payment status change

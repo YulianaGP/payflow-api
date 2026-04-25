@@ -1,4 +1,7 @@
-// Payment status — internal representation, provider-agnostic
+import { z } from "zod"
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
 export type PaymentStatus =
   | "PENDING"
   | "PROCESSING"
@@ -7,9 +10,39 @@ export type PaymentStatus =
   | "REFUNDED"
   | "DISPUTED"
 
-export type Currency = "ARS" | "USD" | "EUR" | "MXN" | "CLP" | "COP"
+export type Currency = "ARS" | "USD" | "EUR" | "MXN" | "CLP" | "COP" | "PEN"
 
 export type PaymentProvider = "mercadopago" | "stripe" | "mock"
+
+// ── Zod validation ───────────────────────────────────────────────────────────
+// Amounts always in cents (integers). $10.50 = 1050. Never floats.
+
+export const CheckoutSchema = z.object({
+  orderId: z.string().min(1),
+  amount: z
+    .number()
+    .int("Amount must be an integer (cents)")
+    .min(50, "Minimum amount: 50 cents")
+    .max(99_999_999, "Maximum amount: $999,999.99"),
+  currency: z.enum(["ARS", "USD", "EUR", "MXN", "CLP", "COP", "PEN"]),
+  description: z.string().min(1).max(500),
+  customerEmail: z.string().email(),
+  successUrl: z.string().url(),
+  failureUrl: z.string().url(),
+  idempotencyKey: z.string().min(1),
+  items: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        quantity: z.number().int().min(1),
+        unitPrice: z.number().int().min(1),
+      })
+    )
+    .optional(),
+})
+
+// ── Interfaces ───────────────────────────────────────────────────────────────
 
 export interface OrderItem {
   name: string
@@ -18,33 +51,23 @@ export interface OrderItem {
   unitPrice: number // in cents
 }
 
-// Input to create a checkout session — neutral terms, no provider leakage
-export interface CheckoutInput {
-  orderId: string
-  amount: number // in cents — validated: min 50, max 99_999_999
-  currency: Currency
-  description: string
-  customerEmail: string
-  successUrl: string
-  failureUrl: string
-  idempotencyKey: string
-  items?: OrderItem[] // optional — for multi-item orders [F1]
-}
+export interface CheckoutInput extends z.infer<typeof CheckoutSchema> {}
 
 export interface CheckoutResult {
   redirectUrl: string // where to send the user to complete payment
-  externalRef: string // provider's reference ID (neutral name, not "preferenceId")
+  externalRef: string // provider's payment ID (neutral name, not "preferenceId")
 }
 
 // Webhook event — normalized across providers
 export interface WebhookEvent {
   provider: PaymentProvider
-  externalId: string     // provider's payment ID
-  eventType: string      // e.g. 'payment.approved', 'payment.rejected'
+  externalEventId: string  // provider's unique event ID — used for idempotency
+  externalId: string       // provider's payment/charge ID
+  eventType: string        // e.g. 'payment.approved', 'payment.rejected'
   status: PaymentStatus
-  amount: number         // confirmed amount in cents (must match original)
-  currency: Currency     // confirmed currency (must match original)
-  raw: unknown           // original payload for debugging
+  amount: number           // confirmed amount in cents (must match original)
+  currency: Currency       // confirmed currency (must match original)
+  rawPayload: unknown      // original payload — stored for debugging
 }
 
 export interface SubscriptionInput {
@@ -68,7 +91,6 @@ export interface ExternalPayment {
   currency: Currency
 }
 
-// Cash payment voucher — for OXXO (Mexico), Rapipago/PagoFacil (Argentina) [F2]
 export interface CashVoucherResult {
   voucherCode: string
   instructions: string
@@ -76,8 +98,7 @@ export interface CashVoucherResult {
   networkName: string // 'OXXO' | 'Rapipago' | 'PagoFacil'
 }
 
-// Core interface — every provider implements this
-// Terms are neutral: no "preferenceId" (MP), no "sessionId" (Stripe)
+// Core interface — every provider must implement this
 export interface PaymentService {
   createCheckout(input: CheckoutInput): Promise<CheckoutResult>
   getPaymentStatus(externalRef: string): Promise<PaymentStatus>
@@ -86,5 +107,5 @@ export interface PaymentService {
   createSubscription(input: SubscriptionInput): Promise<SubscriptionResult>
   cancelSubscription(externalRef: string): Promise<void>
   getByIdempotencyKey(key: string): Promise<ExternalPayment | null>
-  createCashVoucher?(input: CheckoutInput): Promise<CashVoucherResult> // optional [F2]
+  createCashVoucher?(input: CheckoutInput): Promise<CashVoucherResult>
 }

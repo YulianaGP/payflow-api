@@ -43,43 +43,74 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 ---
 
-## ESTADO ACTUAL
+## FASES DEL PROYECTO
 
-| Área | Estado | Meta |
-|---|---|---|
-| Setup monorepo (Turborepo + TypeScript) | ✅ | ✅ |
-| Schema de base de datos completo | ✅ | ✅ |
-| Auth (login/registro + API keys) | ✅ | ✅ |
-| 2FA TOTP para admin + JWT blacklist | ✅ | ✅ |
-| PaymentService abstraction | ⏳ | ✅ |
-| MercadoPago API integration | ⏳ | ✅ |
-| Stripe API integration | ⏳ | ✅ |
-| Mock payment provider | ⏳ | ✅ |
-| Validación de montos y monedas | ⏳ | ✅ |
-| Verificación de replay attack (webhooks) | ⏳ | ✅ |
-| Outbox pattern (pagos atómicos) | ⏳ | ✅ |
-| SELECT FOR UPDATE (concurrencia) | ⏳ | ✅ |
-| Idempotencia de webhooks | ⏳ | ✅ |
-| BullMQ + Redis (reintentos webhooks) | ⏳ | ✅ |
-| Reconciliación automática | ⏳ | ✅ |
-| Frontend shell (Next.js + shadcn/ui) | ⏳ | ✅ |
-| Dark mode + i18n | ⏳ | ✅ |
-| Checkout flow completo | ⏳ | ✅ |
-| Emails transaccionales + PDF de comprobante | ⏳ | ✅ |
-| Suscripciones (dunning, prorrateo) | ⏳ | ✅ |
-| Dashboard admin + SSE real-time | ⏳ | ✅ |
-| Chargebacks / disputas | ⏳ | ✅ |
-| Fraude avanzado (PaymentAttempt) | ⏳ | ✅ |
-| Logging estructurado (pino) + CORS | ⏳ | ✅ |
-| Compliance LATAM (consentimiento + olvido) | ⏳ | ✅ |
-| Pagos en efectivo (OXXO + Rapipago) | ⏳ | ✅ |
-| Invoice por link + múltiples items | ⏳ | ✅ |
-| Página de estado pública (/status) | ⏳ | ✅ |
-| Tests integración (cobertura >70%) | ⏳ | ✅ |
-| Docker + GitHub Actions CI | ⏳ | ✅ |
-| Deploy en Railway | ⏳ | ✅ |
-| CLI de setup (npx payflow init) | ⏳ | ✅ |
-| README + SETUP.md para comprador | ⏳ | ✅ |
+### Fase 1 — Fundación (Días 1–4) ✅ COMPLETADA
+| Tarea | Estado |
+|---|---|
+| Monorepo + TypeScript + ESLint | ✅ |
+| Schema de base de datos + migraciones + seed | ✅ |
+| Auth: JWT + API keys (login, registro, logout) | ✅ |
+| 2FA TOTP para admin + revocación de sesiones | ✅ |
+
+### Fase 2 — Motor de pagos (Días 5–13) 🔄 EN PROGRESO
+| Tarea | Estado |
+|---|---|
+| PaymentService interface + validaciones de monto | ✅ |
+| MockPaymentService (desarrollo sin credenciales reales) | ✅ |
+| Outbox pattern (pagos atómicos, sin pérdida de eventos) | ✅ |
+| SELECT FOR UPDATE (concurrencia) | ✅ |
+| Idempotencia de webhooks | ✅ |
+| MercadoPago API adapter | ⏳ |
+| Stripe API adapter | ⏳ |
+| BullMQ + Redis (reintentos con backoff exponencial) | ⏳ |
+| Reconciliación automática (pagos PENDING > 10 min) | ⏳ |
+
+### Fase 3 — API completa (Días 14–15) ⏳
+| Tarea | Estado |
+|---|---|
+| Accounts y Transactions con state machine | ⏳ |
+| Swagger / OpenAPI en /docs | ⏳ |
+
+### Fase 4 — Frontend (Días 16–20) ⏳
+| Tarea | Estado |
+|---|---|
+| Shell Next.js + shadcn/ui + dark mode | ⏳ |
+| Login, registro y consentimiento de datos | ⏳ |
+| i18n español/inglés + multi-moneda | ⏳ |
+| Checkout flow completo (éxito, fallo, pendiente) | ⏳ |
+| Emails transaccionales + PDF de comprobante | ⏳ |
+
+### Fase 5 — Suscripciones (Días 21–23) ⏳
+| Tarea | Estado |
+|---|---|
+| Planes + trials + cancelación | ⏳ |
+| Upgrades, downgrades y prorrateo | ⏳ |
+| Dunning + webhooks + edge cases | ⏳ |
+
+### Fase 6 — Dashboard y features avanzados (Días 24–32) ⏳
+| Tarea | Estado |
+|---|---|
+| Dashboard admin + SSE real-time | ⏳ |
+| Filtros, exportación CSV y audit log | ⏳ |
+| Chargebacks y disputas | ⏳ |
+| Antifraude avanzado (PaymentAttempt) | ⏳ |
+| Logging estructurado + CORS + headers de seguridad | ⏳ |
+| Compliance LATAM (consentimiento + derecho al olvido) | ⏳ |
+| Pagos en efectivo (OXXO + Rapipago/Pago Fácil) | ⏳ |
+| Invoice por link + múltiples items | ⏳ |
+| Página de estado pública (/status) | ⏳ |
+
+### Fase 7 — Producción y lanzamiento (Días 33–39) ⏳
+| Tarea | Estado |
+|---|---|
+| Frontend: gestión de suscripciones | ⏳ |
+| Tests de integración (cobertura >70%) | ⏳ |
+| Docker + docker-compose | ⏳ |
+| GitHub Actions CI | ⏳ |
+| Deploy en Railway | ⏳ |
+| CLI de setup (npx payflow init) | ⏳ |
+| README profesional + SETUP.md + tag v1.0.0 | ⏳ |
 
 ---
 
@@ -1258,11 +1289,11 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 |---|---|---|---|
 | 2026-04-15 | Setup inicial | Proyecto base Hono + TypeScript + Prisma | Antes de este roadmap |
 | 2026-04-20 | Día 1 | Monorepo Turborepo + apps/api + apps/web + packages/payment-providers + ESLint | TypeScript strict, 0 errores |
-| | | | |
+| 2026-04-25 | Días 5–11 | PaymentService interface, MockPaymentService, state machine, processPaymentUpdate, rutas /payments y /webhooks | Flujo PENDING→PROCESSING→SUCCESS probado manualmente |
 
 ---
 
-*Roadmap actualizado: 2026-04-17*
+*Roadmap actualizado: 2026-04-25*
 *Objetivo: Template full-stack de pagos vendible en $149–199*
 *Stack: TypeScript + Next.js 14 + Hono + Prisma + PostgreSQL + Turborepo*
 *APIs de pago: MercadoPago + Stripe (intercambiables, el template nunca toca datos de tarjetas)*

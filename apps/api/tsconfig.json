@@ -19,7 +19,8 @@
     "sourceMap": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@payflow/payment-providers": ["../../packages/payment-providers/src/index.ts"]
     }
   },
   "include": ["src/**/*"],
