@@ -16,7 +16,9 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
+    "mercadopago": "^2.12.0",
     "nanoid": "^3.3.11",
+    "stripe": "^22.1.0",
     "zod": "^3.22.0"
   }
 }

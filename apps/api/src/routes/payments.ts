@@ -2,9 +2,10 @@ import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
 import { nanoid } from "nanoid"
-import { CheckoutSchema, MockPaymentService } from "@payflow/payment-providers"
+import { CheckoutSchema } from "@payflow/payment-providers"
 import { db } from "../lib/db.js"
 import { authMiddleware } from "../middlewares/auth.js"
+import { resolveProvider } from "../services/providerResolver.js"
 
 export const paymentsRouter = new Hono()
 
@@ -97,11 +98,3 @@ paymentsRouter.get("/", async (c) => {
   return c.json(payments)
 })
 
-// ── Provider resolver ─────────────────────────────────────────────────────────
-function resolveProvider(name: "mercadopago" | "stripe" | "mock") {
-  // In development, PAYMENT_PROVIDER=mock overrides the merchant's provider
-  const override = process.env["PAYMENT_PROVIDER"]
-  if (override === "mock" || name === "mock") return new MockPaymentService()
-  // MercadoPago and Stripe adapters added in Steps 6 & 7
-  throw new Error(`Provider '${name}' not yet implemented`)
-}

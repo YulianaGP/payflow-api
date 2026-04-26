@@ -102,6 +102,7 @@ export async function processPaymentUpdate(
     await tx.outboxEvent.create({
       data: {
         type: `payment.${newStatus.toLowerCase()}`,
+        category: "payment",
         payload: {
           paymentId: payment.id,
           merchantId: payment.merchantId,

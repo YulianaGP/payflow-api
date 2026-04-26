@@ -179,16 +179,16 @@ model Payment {
 model OutboxEvent {
   id          String    @id @default(cuid())
   type        String    // 'payment.success' | 'subscription.renewed' | etc.
+  category    String    @default("payment") // 'payment' | 'webhook' | 'email'
   payload     Json
   attempts    Int       @default(0)
-  lastError   String?   // last error message for debugging
+  lastError   String?
   nextRetryAt DateTime? @default(now())
-  sentAt      DateTime? // null = pending. Worker queries: sentAt IS NULL AND nextRetryAt <= NOW()
+  sentAt      DateTime?
   createdAt   DateTime  @default(now())
 
-  // Retry formula: nextRetryAt = now() + (2^attempts * 1000ms) — exponential backoff
-  // After 5 failed attempts → move to DeadLetterEvent + alert admin
   @@index([sentAt, nextRetryAt])
+  @@index([category, sentAt])
 }
 
 // Failed outbox events after max retries — requires manual intervention
