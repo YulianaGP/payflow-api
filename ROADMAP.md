@@ -53,18 +53,18 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 | Auth: JWT + API keys (login, registro, logout) | ✅ |
 | 2FA TOTP para admin + revocación de sesiones | ✅ |
 
-### Fase 2 — Motor de pagos (Días 5–13) 🔄 EN PROGRESO
+### Fase 2 — Motor de pagos (Días 5–13) ✅ COMPLETADA
 | Tarea | Estado |
 |---|---|
 | PaymentService interface + validaciones de monto | ✅ |
 | MockPaymentService (desarrollo sin credenciales reales) | ✅ |
-| Outbox pattern (pagos atómicos, sin pérdida de eventos) | ✅ |
+| Outbox pattern + OutboxWorker (SKIP LOCKED, backoff cap) | ✅ |
 | SELECT FOR UPDATE (concurrencia) | ✅ |
 | Idempotencia de webhooks | ✅ |
-| MercadoPago API adapter | ⏳ |
-| Stripe API adapter | ⏳ |
-| BullMQ + Redis (reintentos con backoff exponencial) | ⏳ |
-| Reconciliación automática (pagos PENDING > 10 min) | ⏳ |
+| MercadoPago API adapter (pendiente prueba con credenciales) | ✅ |
+| Stripe API adapter (probado con sandbox) | ✅ |
+| BullMQ + Redis (reintentos con backoff exponencial) | ⏳ Fase 6 |
+| Reconciliación automática (PENDING=10min / PROCESSING=20min) | ✅ |
 
 ### Fase 3 — API completa (Días 14–15) ⏳
 | Tarea | Estado |
@@ -1290,6 +1290,7 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 | 2026-04-15 | Setup inicial | Proyecto base Hono + TypeScript + Prisma | Antes de este roadmap |
 | 2026-04-20 | Día 1 | Monorepo Turborepo + apps/api + apps/web + packages/payment-providers + ESLint | TypeScript strict, 0 errores |
 | 2026-04-25 | Días 5–11 | PaymentService interface, MockPaymentService, state machine, processPaymentUpdate, rutas /payments y /webhooks | Flujo PENDING→PROCESSING→SUCCESS probado manualmente |
+| 2026-04-26 | Días 12–13 | OutboxWorker (SKIP LOCKED, backoff cap), reconciliación (thresholds distintos), Stripe adapter (sandbox OK), MercadoPago adapter (pendiente credenciales) | Fase 2 completa |
 
 ---
 
