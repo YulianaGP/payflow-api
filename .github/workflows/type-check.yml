@@ -23,6 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build payment-providers
+        run: npm run build --workspace=packages/payment-providers
+
       - name: Generate Prisma client
         working-directory: apps/api
         run: npx prisma generate
@@ -31,4 +34,4 @@ jobs:
         working-directory: apps/api
         env:
           NODE_OPTIONS: --max-old-space-size=7168
-        run: npx tsc --noEmit
+        run: npx tsc --project tsconfig.ci.json --noEmit

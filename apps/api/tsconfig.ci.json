@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@payflow/payment-providers": ["../../packages/payment-providers/dist/index"]
+    }
+  }
+}
