@@ -25,7 +25,7 @@ const STATUS_MAP: Record<string, PaymentStatus> = {
 function getClient(): Stripe {
   const key = process.env["STRIPE_SECRET_KEY"]
   if (!key) throw new Error("STRIPE_SECRET_KEY is not set")
-  return new Stripe(key, { apiVersion: "2024-06-20" })
+  return new Stripe(key, { apiVersion: "2026-04-22.dahlia" })
 }
 
 function mapStatus(stripeStatus: string): PaymentStatus {
@@ -39,7 +39,7 @@ export class StripePaymentService implements PaymentService {
     const stripe = getClient()
 
     // Build line_items from items[] if provided, otherwise use a single product
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = input.items?.length
+    const lineItems: Stripe.Checkout.Session.CreateParams.LineItem[] = input.items?.length
       ? input.items.map((item) => ({
           price_data: {
             currency: input.currency.toLowerCase(),
@@ -144,7 +144,7 @@ export class StripePaymentService implements PaymentService {
       {
         customer: input.customerId,
         items: [{ price: price.id }],
-        trial_period_days: input.trialDays,
+        ...(input.trialDays !== undefined ? { trial_period_days: input.trialDays } : {}),
         metadata: { planId: input.planId },
       },
       { idempotencyKey: input.idempotencyKey }

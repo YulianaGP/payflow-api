@@ -76,15 +76,17 @@ export class MercadoPagoPaymentService implements PaymentService {
     const preference = new Preference(client)
 
     const items = input.items?.length
-      ? input.items.map((item) => ({
+      ? input.items.map((item, i) => ({
+          id: String(i + 1),
           title: item.name,
-          description: item.description,
+          ...(item.description !== undefined ? { description: item.description } : {}),
           quantity: item.quantity,
           unit_price: item.unitPrice / 100, // MP uses decimal, not cents
           currency_id: input.currency,
         }))
       : [
           {
+            id: "1",
             title: input.description,
             quantity: 1,
             unit_price: input.amount / 100,
@@ -157,7 +159,8 @@ export class MercadoPagoPaymentService implements PaymentService {
   async refund(externalRef: string, amount?: number): Promise<void> {
     const client = getClient()
     const payment = new Payment(client)
-    await payment.refund({
+    // SDK v2 types don't expose refund() directly — call via any
+    await (payment as any).refund({
       id: Number(externalRef),
       ...(amount !== undefined ? { body: { amount: amount / 100 } } : {}),
     })
@@ -177,10 +180,11 @@ export class MercadoPagoPaymentService implements PaymentService {
           frequency_type: input.interval === "month" ? "months" : "years",
           transaction_amount: input.amount / 100,
           currency_id: input.currency,
-          free_trial: input.trialDays
-            ? { frequency: input.trialDays, frequency_type: "days" }
-            : undefined,
-        },
+          ...(input.trialDays !== undefined
+            ? { free_trial: { frequency: input.trialDays, frequency_type: "days" } }
+            : {}),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
         back_url: process.env["NEXTAUTH_URL"] ?? "http://localhost:3000",
         reason: `Plan ${input.planId}`,
         external_reference: input.planId,
