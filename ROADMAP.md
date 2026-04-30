@@ -66,11 +66,16 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 | BullMQ + Redis (reintentos con backoff exponencial) | ⏳ Fase 6 |
 | Reconciliación automática (PENDING=10min / PROCESSING=20min) | ✅ |
 
-### Fase 3 — API completa (Días 14–15) ⏳
+### Fase 3 — API completa (Días 14–15) ✅ COMPLETADA
 | Tarea | Estado |
 |---|---|
-| Accounts y Transactions con state machine | ⏳ |
-| Swagger / OpenAPI en /docs | ⏳ |
+| Modelos Account + Transaction + LedgerEntry (double-entry ledger) | ✅ |
+| Account state machine: ACTIVE ↔ FROZEN → CLOSED | ✅ |
+| Endpoints accounts: CRUD + fund + freeze + unfreeze + close | ✅ |
+| Endpoints transactions: CRUD + reverse | ✅ |
+| Idempotencia con ventana de 60s + key explícita | ✅ |
+| Locks con orden determinístico (anti-deadlock) | ✅ |
+| Swagger / OpenAPI en /docs | ✅ |
 
 ### Fase 4 — Frontend (Días 16–20) ⏳
 | Tarea | Estado |
@@ -321,6 +326,69 @@ model Merchant {
   webhookSecret    String
   refundWindowDays Int     @default(180)  // política de reembolso del merchant
 }
+
+// ─── LEDGER INTERNO (Fase 3) ───────────────────────────────────────────────
+
+// CUENTAS INTERNAS — wallet por merchant
+// balance es un campo CACHEADO, no la fuente de verdad
+// fuente de verdad: SUM(LedgerEntry.amount WHERE accountId = X) === balance
+enum AccountStatus { ACTIVE, FROZEN, CLOSED }
+
+model Account {
+  id         String        @id @default(cuid())
+  merchantId String
+  name       String
+  currency   String        // 'ARS' | 'USD' | 'EUR' | 'MXN' | 'CLP' | 'COP'
+  balance    Int           @default(0)  // en centavos, CACHEADO — nunca negativo
+  status     AccountStatus @default(ACTIVE)
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  @@index([merchantId, status])
+}
+
+// TRANSACCIONES — movimientos entre cuentas
+// PENDING eliminado: operaciones síncronas y atómicas
+enum TransactionStatus { COMPLETED, FAILED, REVERSED }
+
+model Transaction {
+  id              String            @id @default(cuid())
+  merchantId      String
+  debitAccountId  String?           // null para DEPOSIT (fondeo externo)
+  creditAccountId String?           // null para WITHDRAWAL
+  type            TransactionType   // TRANSFER | DEPOSIT | WITHDRAWAL | REFUND
+  status          TransactionStatus @default(COMPLETED)
+  amount          Int               // en centavos, siempre positivo
+  currency        String
+  description     String?
+  metadata        Json?
+  idempotencyKey  String?           // resuelto siempre internamente (ventana 60s si no se envía)
+  createdBy       String            // 'user:userId' | 'system' | 'reconciliation'
+  reversalOfId    String?  @unique  // una sola reversión por tx — invariante intencional
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@unique([merchantId, idempotencyKey])  // idempotencia POR merchant, no global
+  @@index([merchantId, status, createdAt])
+  @@index([debitAccountId])
+  @@index([creditAccountId])
+}
+
+// LEDGER ENTRIES — fuente de verdad del balance
+// Cada TRANSFER genera 2 entradas que suman 0 (débito + crédito)
+// DEPOSIT/WITHDRAWAL generan 1 entrada (sin contraparte interna — limitación documentada)
+// SIN updatedAt — estos registros NUNCA se modifican
+model LedgerEntry {
+  id            String   @id @default(cuid())
+  transactionId String
+  accountId     String
+  type          String   // 'debit' | 'credit' — explícito para observabilidad en queries
+  amount        Int      // positivo = crédito (+), negativo = débito (-)
+  currency      String   // denormalizado — entry autosuficiente sin JOIN a Transaction
+  balanceAfter  Int      // snapshot del saldo tras esta entrada
+  createdAt     DateTime @default(now())
+  @@index([accountId, createdAt])
+  @@index([transactionId])
+}
 ```
 
 ---
@@ -348,6 +416,22 @@ model Merchant {
 10. **Balances:** siempre en centavos (enteros). `$10.50 = 1050`. Nunca floats.
 
 11. **Admin actions:** toda acción del admin (reembolso, cambio de estado) se registra en `PaymentAuditLog` con `changedBy: 'admin:userId'` y el motivo obligatorio.
+
+12. **Ledger — fuente de verdad:** crear `LedgerEntry` + actualizar `Account.balance` en la MISMA `$transaction`. Si uno falla → rollback completo. El balance cacheado nunca diverge del ledger.
+
+13. **Ledger — invariante de balance:** para TRANSFER y REFUND, la suma de entries debe ser 0. Validar en código antes del commit: `sum(entries.amount) === 0`. Un valor distinto de cero indica un bug en el service.
+
+14. **Ledger — locks anti-deadlock:** bloquear cuentas siempre en orden determinístico con un solo query:
+    ```sql
+    SELECT * FROM "Account" WHERE id = ANY($ids) ORDER BY id FOR UPDATE
+    ```
+    Nunca bloquear fila por fila en un loop — riesgo de deadlock si dos requests cruzan el orden.
+
+15. **Ledger — idempotencia de transactions:** `@@unique([merchantId, idempotencyKey])`. Si no se envía key, el sistema genera un hash determinístico con ventana de 60 segundos. Atrapar error `P2002` en INSERT para manejar race conditions concurrentes.
+
+16. **Ledger — moneda entre cuentas:** en TRANSFER, `debitAccount.currency` debe ser igual a `creditAccount.currency`. Nunca convertir implícitamente.
+
+17. **Ledger — reversal:** solo transacciones COMPLETED pueden revertirse. Una sola reversión por transacción (`reversalOfId @unique`). Si la cuenta origen no tiene saldo para revertir → error `REVERSAL_INSUFFICIENT_FUNDS`, no saldo negativo.
 
 ---
 
@@ -675,14 +759,71 @@ if (existing) return c.json({ status: 'already_processed' }, 200)
 
 ## DÍA 14 — Accounts y Transactions
 
-**Meta:** CRUD de cuentas y transacciones con state machine completa.
+**Meta:** CRUD de cuentas y transacciones con double-entry ledger, state machine completa e idempotencia robusta.
 
+**Diseño del ledger:**
+- `Account.balance` es un campo **cacheado** — se actualiza atómicamente junto con las `LedgerEntry`
+- `LedgerEntry` es la **fuente de verdad** — el balance se puede verificar en cualquier momento:
+  ```typescript
+  SUM(LedgerEntry.amount WHERE accountId = X) === Account.balance
+  ```
+- Cada `TRANSFER` o `REFUND` genera exactamente 2 entradas que suman 0 (débito + crédito)
+- `DEPOSIT` y `WITHDRAWAL` generan 1 entrada — sin contraparte interna (limitación documentada)
+
+**Account state machine:**
+```
+ACTIVE  ──freeze──►   FROZEN
+FROZEN  ──unfreeze──► ACTIVE
+ACTIVE  ──close──►    CLOSED   (guard: balance === 0)
+FROZEN  ──close──►    CLOSED   (guard: balance === 0)
+CLOSED  ──(nada)      terminal — no se puede reabrir
+```
+
+**Idempotencia con ventana de tiempo:**
+```typescript
+// Si el cliente NO envía idempotencyKey, el sistema genera uno automáticamente:
+const window = Math.floor(Date.now() / 60_000) // ventana de 60 segundos
+const autoKey = sha256(`auto:${merchantId}:${debitId}:${creditId}:${amount}:${type}:${normalizedDescription}:${window}`)
+// description normalizada: trim().toLowerCase() — evita falsos negativos por mayúsculas/espacios
+// Protege double-clicks y retries de red sin bloquear transfers legítimos posteriores
+// Para operaciones de alta frecuencia entre las mismas cuentas → usar idempotencyKey explícito
+```
+
+**Anti-deadlock con locks determinísticos:**
+```typescript
+// NUNCA bloquear fila por fila en un loop — un solo query en orden consistente
+SELECT * FROM "Account" WHERE id = ANY($ids) ORDER BY id FOR UPDATE
+// ORDER BY id garantiza el mismo orden siempre → elimina deadlocks A→B vs B→A simultáneos
+```
+
+**Reversal sin fondos:**
+```typescript
+// Si la cuenta de origen del reversal no tiene saldo suficiente → error explícito:
+// { "error": "Insufficient balance in account X to process reversal", "code": "REVERSAL_INSUFFICIENT_FUNDS" }
+// No se permite saldo negativo — el reversal falla limpiamente
+```
+
+- [ ] Enums: `AccountStatus { ACTIVE, FROZEN, CLOSED }`, `TransactionStatus { COMPLETED, FAILED, REVERSED }`
+- [ ] Modelo `Account` — ver sección MODELOS DE BASE DE DATOS
+- [ ] Modelo `Transaction` — ver sección MODELOS DE BASE DE DATOS
+- [ ] Modelo `LedgerEntry` — ver sección MODELOS DE BASE DE DATOS
+- [ ] Migración: `prisma migrate dev --name phase3_accounts_transactions_ledger`
 - [ ] Zod schemas en `src/schemas/accounts.ts` y `src/schemas/transactions.ts`
-- [ ] Balance en centavos, nunca negativo, cuenta congelada no opera
+  - `CreateTransactionSchema`: discriminated union por `type` — TRANSFER/DEPOSIT/WITHDRAWAL
+  - Imposible enviar combinaciones inválidas de cuentas a nivel de tipos
+- [ ] `src/services/accountService.ts` — state machine + `verifyBalance` (auditoría, no flujo crítico)
+- [ ] `src/services/transactionService.ts`:
+  - `resolveIdempotencyKey` — ventana 60s con description normalizada
+  - `checkIdempotency` + catch `P2002` para race conditions concurrentes
+  - `acquireAccountLocks` — single query `SELECT FOR UPDATE ORDER BY id`
+  - `assertLedgerBalance` — assert `sum === 0` para TRANSFER/REFUND + log antes de throw
+- [ ] Balance en centavos, nunca negativo, cuenta frozen/closed no opera
 - [ ] Cursor pagination: `?cursor=cuid&limit=20` (no offset — los datos cambian en tiempo real)
 - [ ] Endpoints accounts: `POST`, `GET`, `GET/:id`, `POST/:id/fund`, `POST/:id/freeze`, `POST/:id/unfreeze`
 - [ ] Endpoints transactions: `POST`, `GET`, `GET/:id`, `POST/:id/reverse`
-- [ ] Tests: saldo negativo → 422, cuenta congelada → 403
+- [ ] Header `X-Idempotent-Replayed: true` cuando la respuesta es cacheada
+- [ ] Log estructurado en replay: `{ event: 'idempotent_replay', transactionId, merchantId, idempotencyKey }`
+- [ ] Tests: saldo negativo → 422, cuenta frozen → 403, reversal sin fondos → 409, idempotencia → misma tx
 
 ---
 
@@ -690,11 +831,20 @@ if (existing) return c.json({ status: 'already_processed' }, 200)
 
 **Meta:** Documentación interactiva de la API para el comprador del template.
 
-- [ ] `@hono/swagger-ui` — accesible en `/docs`
-- [ ] Documentar todos los endpoints con ejemplos de request/response
-- [ ] Documentar los payloads de webhooks de MP y Stripe
-- [ ] Documentar todos los códigos de error en inglés
-- [ ] Screenshot para el README
+- [ ] `@hono/swagger-ui` ya instalado — accesible en `/docs`, spec en `/openapi.json`
+- [ ] `src/lib/openapi.ts` — spec OpenAPI 3.0 completo cubriendo todos los grupos de endpoints:
+  - Auth (`/api/auth`): login, register, logout, revoke-all-sessions
+  - API keys (`/api/keys`): create, list, revoke
+  - 2FA (`/api/2fa`): setup, verify, disable
+  - Payments (`/api/payments`): create, get, list
+  - Webhooks (`/api/webhooks`): MP + Stripe payloads documentados
+  - Accounts (`/api/accounts`): CRUD + fund + freeze + unfreeze
+  - Transactions (`/api/transactions`): CRUD + reverse
+- [ ] Para cada endpoint: request body, response 200/201, errores 4xx/5xx con ejemplos
+- [ ] Campo `idempotencyKey` documentado: comportamiento de ventana automática 60s + key manual
+- [ ] Error `REVERSAL_INSUFFICIENT_FUNDS` documentado con ejemplo
+- [ ] Todos los códigos de error en inglés con código semántico (`"code": "ACCOUNT_FROZEN"`)
+- [ ] Screenshot del `/docs` para el README
 
 ---
 
@@ -1291,10 +1441,12 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 | 2026-04-20 | Día 1 | Monorepo Turborepo + apps/api + apps/web + packages/payment-providers + ESLint | TypeScript strict, 0 errores |
 | 2026-04-25 | Días 5–11 | PaymentService interface, MockPaymentService, state machine, processPaymentUpdate, rutas /payments y /webhooks | Flujo PENDING→PROCESSING→SUCCESS probado manualmente |
 | 2026-04-26 | Días 12–13 | OutboxWorker (SKIP LOCKED, backoff cap), reconciliación (thresholds distintos), Stripe adapter (sandbox OK), MercadoPago adapter (pendiente credenciales) | Fase 2 completa |
+| 2026-04-26 | Días 14–15 | Plan de Fase 3 diseñado y aprobado: double-entry ledger (Account + Transaction + LedgerEntry), state machine, idempotencia con ventana 60s, locks determinísticos anti-deadlock, Swagger OpenAPI | Diseño revisado en profundidad con ChatGPT — nivel production real |
+| 2026-04-27 | Días 14–15 | Fase 3 completada: migración aplicada, schemas Zod, accountService + transactionService, rutas /accounts y /transactions, spec OpenAPI 3.0 completa en /docs | double-entry ledger, state machine ACTIVE↔FROZEN→CLOSED, idempotencia P2002 race-safe, SELECT FOR UPDATE anti-deadlock, close endpoint con guard balance=0 |
 
 ---
 
-*Roadmap actualizado: 2026-04-25*
+*Roadmap actualizado: 2026-04-27*
 *Objetivo: Template full-stack de pagos vendible en $149–199*
 *Stack: TypeScript + Next.js 14 + Hono + Prisma + PostgreSQL + Turborepo*
 *APIs de pago: MercadoPago + Stripe (intercambiables, el template nunca toca datos de tarjetas)*

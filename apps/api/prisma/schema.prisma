@@ -35,6 +35,18 @@ enum TransactionType {
   REFUND
 }
 
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionStatus {
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
 enum UserRole {
   USER
   ADMIN
@@ -125,12 +137,14 @@ model Merchant {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  users         User[]
-  payments      Payment[]
-  subscriptions Subscription[]
-  webhooks      Webhook[]
-  invoices      Invoice[]
+  users           User[]
+  payments        Payment[]
+  subscriptions   Subscription[]
+  webhooks        Webhook[]
+  invoices        Invoice[]
   paymentAttempts PaymentAttempt[]
+  accounts        Account[]
+  transactions    Transaction[]
 }
 
 // ─────────────────────────────────────────────
@@ -388,4 +402,83 @@ model StatusCheck {
   checkedAt  DateTime @default(now())
 
   @@index([service, checkedAt])
+}
+
+// ─────────────────────────────────────────────
+// INTERNAL LEDGER — Phase 3
+// ─────────────────────────────────────────────
+
+model Account {
+  id         String        @id @default(cuid())
+  merchantId String
+  merchant   Merchant      @relation(fields: [merchantId], references: [id])
+  name       String
+  currency   String        // 'USD' | 'ARS' | 'EUR' | 'MXN' | 'CLP' | 'COP' — validated by Zod
+  // Cached field — source of truth is LedgerEntry
+  // Invariant: SUM(LedgerEntry.amount WHERE accountId = id) === balance
+  balance    Int           @default(0)
+  status     AccountStatus @default(ACTIVE)
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  debitTransactions  Transaction[] @relation("DebitAccount")
+  creditTransactions Transaction[] @relation("CreditAccount")
+  ledgerEntries      LedgerEntry[]
+
+  @@index([merchantId, status])
+}
+
+model Transaction {
+  id              String            @id @default(cuid())
+  merchantId      String
+  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+  debitAccountId  String?           // null for DEPOSIT (external funding)
+  creditAccountId String?           // null for WITHDRAWAL
+  debitAccount    Account?          @relation("DebitAccount",  fields: [debitAccountId],  references: [id])
+  creditAccount   Account?          @relation("CreditAccount", fields: [creditAccountId], references: [id])
+  type            TransactionType
+  status          TransactionStatus @default(COMPLETED)
+  amount          Int               // in cents, always positive
+  currency        String
+  description     String?
+  metadata        Json?
+  // Resolved internally always: client key if provided, else 60s-window hash
+  idempotencyKey  String?
+  // 'user:userId' | 'system' | 'reconciliation' — same pattern as PaymentAuditLog.changedBy
+  createdBy       String
+  // One reversal per transaction — intentional invariant, prevents double-reversal
+  reversalOfId    String?           @unique
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  reversalOf    Transaction?  @relation("Reversal", fields: [reversalOfId], references: [id])
+  reversedBy    Transaction?  @relation("Reversal")
+  ledgerEntries LedgerEntry[]
+
+  // Idempotency scoped to merchant — two merchants can use the same key independently
+  @@unique([merchantId, idempotencyKey])
+  @@index([merchantId, status, createdAt])
+  @@index([debitAccountId])
+  @@index([creditAccountId])
+}
+
+// Source of truth for all balances — never modified, only appended
+// TRANSFER and REFUND always produce exactly 2 entries that sum to 0
+// DEPOSIT and WITHDRAWAL produce 1 entry (no internal counterpart — documented limitation)
+model LedgerEntry {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  accountId     String
+  account       Account     @relation(fields: [accountId], references: [id])
+  type          String      // 'debit' | 'credit' — explicit for readable audit queries
+  amount        Int         // positive = credit (+), negative = debit (-)
+  currency      String      // denormalized — entry is self-contained without JOIN
+  balanceAfter  Int         // snapshot of account balance after this entry
+  createdAt     DateTime    @default(now())
+  // NO updatedAt — these records are NEVER modified
+
+  @@index([accountId, createdAt])
+  @@index([transactionId])
 }
