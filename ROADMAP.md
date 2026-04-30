@@ -874,40 +874,107 @@ SELECT * FROM "Account" WHERE id = ANY($ids) ORDER BY id FOR UPDATE
 
 ---
 
-## DÍA 16 — Frontend: shell + shadcn/ui + dark mode
+## DÍA 16 — Frontend: shell + shadcn/ui + dark mode + shared-types + i18n base
 
-**Meta:** App Next.js con diseño profesional lista para agregar páginas.
+**Meta:** App Next.js con diseño profesional lista para agregar páginas. La estructura de rutas con `[locale]` va aquí — moverla después rompe todos los paths.
 
 - [ ] `npx shadcn@latest init`
-- [ ] Componentes: `Button`, `Input`, `Card`, `Table`, `Badge`, `Dialog`, `Sheet`, `Skeleton`, `Sonner`
-- [ ] Dark mode con `next-themes`
-- [ ] Layout del dashboard: sidebar colapsable + header + área de contenido
+- [ ] Componentes: `Button`, `Input`, `Card`, `Table`, `Badge`, `Dialog`, `Sheet`, `Skeleton`, `Sonner`, `DropdownMenu`, `Avatar`
+- [ ] Dark mode con `next-themes` — `suppressHydrationWarning` en `<html>` (obligatorio)
+- [ ] Estructura de rutas con `[locale]`: `app/[locale]/(auth)/`, `app/[locale]/(dashboard)/`
+- [ ] `npm install next-intl` + middleware + `i18n.ts` — solo estructura, sin textos todavía
+- [ ] Layout del dashboard: sidebar colapsable (240px ↔ 64px) + header + área de contenido
+  - Estado del sidebar en `localStorage`; en móvil (<768px) → `Sheet` con botón hamburguesa
 - [ ] Responsive: verificar en 375px, 768px, 1280px
+- [ ] **`packages/shared-types/`** — DTOs planos para frontend (regla: sin imports de Prisma ni Zod):
+  ```typescript
+  // packages/shared-types/src/payment.ts
+  export type PaymentStatus = "PENDING" | "PROCESSING" | "SUCCESS" | "FAILED" | "REFUNDED" | "DISPUTED"
+  export type PaymentDTO = { id: string; orderId: string; amount: number; currency: string; status: PaymentStatus; provider: string; createdAt: string }
+  export type AccountDTO = { id: string; name: string; currency: string; balance: number; status: "ACTIVE" | "FROZEN" | "CLOSED"; createdAt: string }
+  ```
+- [ ] **Mappers en `apps/api/src/lib/mappers.ts`** — serialización centralizada para evitar inconsistencias:
+  ```typescript
+  export function toPaymentDTO(p: Payment): PaymentDTO { return { ...p, createdAt: p.createdAt.toISOString() } }
+  export function toAccountDTO(a: Account): AccountDTO { return { ...a, createdAt: a.createdAt.toISOString() } }
+  ```
+  Todos los route handlers usan estos mappers — nunca construyen el objeto response inline.
+- [ ] **`apps/web/src/lib/api.ts`** — factory con token como parámetro (compatible Server + Client Components):
+  ```typescript
+  export function createApiClient(token?: string) {
+    async function request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (res.status === 401 && typeof window !== "undefined") {
+        const { signOut } = await import("next-auth/react")
+        await signOut({ callbackUrl: "/login" })
+        throw new Error("Session expired")  // página navegando, el throw no llega a ningún lado relevante
+      }
+      // ...
+    }
+    return {
+      payments: { get: (id: string, init?: Pick<RequestInit, "signal">) => request<PaymentDTO>(..., init) },
+      accounts: { list: (init?: Pick<RequestInit, "signal">) => request<AccountDTO[]>(..., init) },
+    }
+  }
+  // Server Component: const api = createApiClient((await getServerSession())?.token)
+  // Client Component: const api = createApiClient(useSession().data?.token)
+  ```
+- [ ] `NEXT_PUBLIC_API_URL` documentada en `apps/web/.env.example`
 
 ---
 
-## DÍA 17 — Frontend: Login, registro y consentimiento
+## DÍA 17 — Frontend: Login, registro, consentimiento + backend auth completo
 
-**Meta:** Flujo completo de autenticación con consentimiento de datos.
+**Meta:** Flujo completo de autenticación. Incluye forgot-password en backend (sin esto el template no es vendible) y rate limit en login (sin esto es vulnerable a bots desde el momento que se despliega).
 
-- [ ] Página `/login` con React Hook Form + Zod
-- [ ] Página `/register` con validación en tiempo real
-- [ ] **[E2]** Checkbox de consentimiento obligatorio en el registro (ya implementado en DÍA 3 en el backend — aquí va la UI)
-- [ ] Página `/forgot-password` + reset por email
-- [ ] Middleware Next.js: `/dashboard/**` redirige a `/login` sin sesión
-- [ ] Loading states en todos los formularios (evitar doble submit)
-- [ ] Mensajes de error específicos por campo
+- [ ] **NextAuth CredentialsProvider** — llama a `POST /api/auth/login`, guarda JWT del backend en sesión:
+  ```typescript
+  callbacks: {
+    async jwt({ token, user }) { if (user) token.backendToken = user.token; return token },
+    async session({ session, token }) { session.token = token.backendToken; return session },
+  }
+  ```
+- [ ] **`types/next-auth.d.ts`** — module augmentation obligatorio (sin esto TypeScript no conoce `session.token`):
+  ```typescript
+  declare module "next-auth" { interface Session { token?: string } }
+  declare module "next-auth/jwt"  { interface JWT   { backendToken?: string } }
+  ```
+- [ ] Middleware Next.js: `app/[locale]/(dashboard)/**` redirige a `/login` sin sesión
+- [ ] Página `/[locale]/login` con React Hook Form + Zod + loading state (evitar doble submit)
+- [ ] Página `/[locale]/register` con validación en tiempo real + mensajes de error por campo
+- [ ] **[E2]** Checkbox de consentimiento NO pre-marcado (obligatorio, un checkbox pre-marcado no es consentimiento válido)
+  - Al registrarse → `POST /api/users/me/consent` → crea `UserConsent` con IP y userAgent
+- [ ] **Backend: `POST /api/auth/forgot-password`** — genera token temporal + encola email de reset
+- [ ] **Backend: `POST /api/auth/reset-password`** — valida token + actualiza contraseña
+- [ ] Página `/[locale]/forgot-password` + `/[locale]/reset-password`
+- [ ] **Rate limit en `POST /api/auth/login`** — 5 req/min por IP con Redis:
+  ```typescript
+  // lib/rateLimiter.ts — interfaz para swap sin refactor
+  interface RateLimiterStore { increment(key: string, windowMs: number): Promise<number> }
+  // Selección automática: Redis si REDIS_URL, in-memory con warning en dev, hard fail en prod
+  const store = process.env.REDIS_URL
+    ? new RedisStore(process.env.REDIS_URL)
+    : process.env.NODE_ENV === "production"
+      ? (() => { throw new Error("REDIS_URL required for rate limiting in production") })()
+      : (console.warn("[rate-limiter] using in-memory store — dev only"), new InMemoryStore())
+  ```
 
 ---
 
-## DÍA 18 — Frontend: i18n + multi-moneda
+## DÍA 18 — Frontend: i18n textos + multi-moneda
 
-**Meta:** Soporte español/inglés desde el inicio. Precios formateados por locale.
+**Meta:** Textos en español e inglés. La estructura `[locale]` ya está del Día 16 — aquí van los mensajes reales y el formateo de monedas.
 
-- [ ] `npm install next-intl`
-- [ ] `messages/en.json` y `messages/es.json`
-- [ ] Función `formatCurrency(amount: number, currency: string, locale: string)` con `Intl.NumberFormat`
-- [ ] Selector de idioma en el header (persistido en cookie)
+- [ ] `messages/en.json` y `messages/es.json` — textos de todas las páginas creadas hasta ahora
+- [ ] `formatCurrency(amount, currency, locale)` con `Intl.NumberFormat` — siempre divide por 100 (backend siempre en centavos):
+  ```typescript
+  // formatCurrency(1050, "USD", "en-US") → "$10.50"
+  // formatCurrency(1050, "ARS", "es-AR") → "$ 10,50"
+  export function formatCurrency(amountCents: number, currency: string, locale: string): string {
+    return new Intl.NumberFormat(locale, { style: "currency", currency }).format(amountCents / 100)
+  }
+  ```
+- [ ] Selector de idioma en el `Header` como `<DropdownMenu>` — guarda locale en cookie (no localStorage, para que el server component lo lea en SSR)
+- [ ] Verificar que login, register, dashboard y páginas de pago están traducidas
 
 ---
 
@@ -920,18 +987,39 @@ SELECT * FROM "Account" WHERE id = ANY($ids) ORDER BY id FOR UPDATE
                    → /payment/success | /payment/failed | /payment/pending
 ```
 
-- [ ] Página `/checkout/:orderId` con resumen del pago
-- [ ] **[B3]** Mensaje claro en `/payment/pending`:
-  - "Tu pago está siendo procesado. Recibirás confirmación en los próximos 5 minutos."
-  - "**Si no recibes confirmación, tu tarjeta NO fue cargada.** Puedes intentarlo de nuevo."
-  - Polling a `GET /api/payments/:id` cada 3s, máximo 30s
-- [ ] Componente `<PaymentErrorMessage>` con mensajes específicos por código de error:
-  - `insufficient_funds` → "Fondos insuficientes"
+- [ ] Página `/[locale]/checkout` con resumen del pago
+  - `idempotencyKey` generado con `useRef(nanoid()).current` — se genera UNA vez y persiste entre renders
+  - Antes de mostrar el form: verificar con `GET /api/payments?orderId=X` → si ya hay SUCCESS → "Este pago ya fue procesado"
+- [ ] **[B3]** Página `/[locale]/payment/pending` — la pantalla más crítica:
+  - Texto obligatorio: "Tu pago está siendo verificado." + "**Si no recibes confirmación, tu tarjeta NO fue cargada.**"
+  - **Polling con `setTimeout` recursivo** (no `setInterval` — evita requests acumulados si la red es lenta):
+    ```typescript
+    const poll = async () => {
+      if (!active) return
+      const controller = new AbortController()  // nuevo por request — no se reutiliza
+      try {
+        const payment = await api.payments.get(paymentId, { signal: controller.signal })
+        if (payment.status === "SUCCESS") return router.push(...)
+        if (active) setTimeout(poll, 3_000)
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return  // cleanup — no reintentar
+        if (active) setTimeout(poll, 3_000)  // error de red — sí reintentar
+      }
+    }
+    // Cleanup en 30s → botón "Check again"
+    ```
+  - **`restartPolling()`** — limpia estado anterior antes de reiniciar (evita dos loops paralelos):
+    ```typescript
+    const restartPolling = () => { activeRef.current = false; setTimeout(() => { activeRef.current = true; setTimedOut(false); poll() }, 0) }
+    ```
+  - Si `timedOut`: "No pudimos confirmar automáticamente. [Check again] [Contactar soporte]"
+- [ ] Componente `<PaymentErrorMessage>` — mapeo de código de error a texto en el idioma del usuario:
+  - `insufficient_funds` → "Fondos insuficientes" / "Insufficient funds"
   - `card_declined` → "Tarjeta rechazada — contacta a tu banco"
   - `expired_card` → "Tu tarjeta está vencida"
-  - `network_error` → "Problema de conexión — tu tarjeta NO fue cargada"
-- [ ] Botón "Reintentar" en errores recuperables (con nuevo idempotency key)
-- [ ] **[C1]** Si `orderId` ya tiene un pago en SUCCESS → mostrar "Este pago ya fue procesado" en vez de crear otro
+  - `INSUFFICIENT_BALANCE`, `CURRENCY_MISMATCH` → errores semánticos de la API interna
+- [ ] Botón "Reintentar" solo en errores recuperables (`card_declined`, `processing_error`) — genera nuevo `nanoid()` para `idempotencyKey`
+- [ ] **[C1]** Guard contra doble pago ya implementado arriba
 
 ---
 
@@ -964,13 +1052,21 @@ Cuerpo:
 - Número de transacción, fecha, monto, moneda, estado, datos del merchant
 - Necesario para facturación — muy pedido en LATAM
 
+- [ ] **Conectar webhooks reales** (resuelve P2-1): rutas `/api/webhooks/stripe` y `/api/webhooks/mercadopago` dejan de ser stubs y llaman a `processPaymentUpdate`
+  - Stripe: leer body como texto raw (necesario para verificación de firma HMAC)
+  - MercadoPago: verificar `x-signature` + `x-request-id` headers antes de procesar
 - [ ] `npm install resend` para emails transaccionales
-- [ ] `npm install @react-pdf/renderer` para generar PDFs en TypeScript
-- [ ] Plantilla TypeScript para email de éxito (React Email)
-- [ ] Plantilla TypeScript para email de fallo
-- [ ] Plantilla TypeScript para PDF de comprobante
-- [ ] Endpoint `GET /api/payments/:id/receipt` — descarga el PDF
-- [ ] El email se envía desde el OutboxWorker (no bloquea el webhook handler)
+- [ ] `npm install @react-pdf/renderer` para generar PDFs — solo bajo demanda, nunca en flujo crítico
+- [ ] **`packages/email-templates/`** — nuevo package con plantillas React Email + PDF:
+  - `PaymentSuccessEmail`, `PaymentFailedEmail`, `ReceiptDocument`
+- [ ] **Outbox dispatch real** (resuelve P2-2 categoría `email`):
+  ```typescript
+  // outboxWorker.ts dispatch()
+  if (event.category === "email") {
+    await resend.emails.send({ from: EMAIL_FROM, to: payload.customerEmail, react: PaymentSuccessEmail(payload) })
+  }
+  ```
+- [ ] Endpoint `GET /api/payments/:id/receipt` — genera PDF con `renderToBuffer()` y devuelve con header `Content-Disposition: attachment`
 - [ ] Variables: `RESEND_API_KEY`, `EMAIL_FROM`
 - [ ] Tests: pago exitoso → email enviado + PDF generado correctamente
 
@@ -1470,6 +1566,7 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 | 2026-04-26 | Días 14–15 | Plan de Fase 3 diseñado y aprobado: double-entry ledger (Account + Transaction + LedgerEntry), state machine, idempotencia con ventana 60s, locks determinísticos anti-deadlock, Swagger OpenAPI | Diseño revisado en profundidad con ChatGPT — nivel production real |
 | 2026-04-27 | Días 14–15 | Fase 3 completada: migración aplicada, schemas Zod, accountService + transactionService, rutas /accounts y /transactions, spec OpenAPI 3.0 completa en /docs | double-entry ledger, state machine ACTIVE↔FROZEN→CLOSED, idempotencia P2002 race-safe, SELECT FOR UPDATE anti-deadlock, close endpoint con guard balance=0 |
 | 2026-04-30 | CI | CI GitHub Actions: type-check en 2 jobs (payment-providers full + api solo schemas sin Prisma). Adapters Stripe v22 + MercadoPago v2 corregidos. Análisis de deuda técnica Fase 2/3 documentado. | Prisma 6 requiere >7 GB RAM para tsc completo — VS Code valida servicios/rutas en local, CI valida el resto |
+| 2026-04-30 | Diseño Fase 4 | Plan de Fase 4 completo y cerrado tras 3 rondas de revisión. Decisiones clave: shared-types como DTOs planos, api.ts factory, [locale] en Día 16, NextAuth callbacks + module augmentation, rate limit con Redis, polling con setTimeout recursivo + AbortController por request, mappers centralizados para serialización | i18n debe ir antes de crear rutas de auth — moverlo después rompe todos los paths |
 
 ---
 
