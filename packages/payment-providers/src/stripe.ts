@@ -39,11 +39,14 @@ export class StripePaymentService implements PaymentService {
     const stripe = getClient()
 
     // Build line_items from items[] if provided, otherwise use a single product
-    const lineItems: Stripe.Checkout.Session.CreateParams.LineItem[] = input.items?.length
+    const lineItems = input.items?.length
       ? input.items.map((item) => ({
           price_data: {
             currency: input.currency.toLowerCase(),
-            product_data: { name: item.name, description: item.description },
+            product_data: {
+              name: item.name,
+              ...(item.description !== undefined ? { description: item.description } : {}),
+            },
             unit_amount: item.unitPrice,
           },
           quantity: item.quantity,
