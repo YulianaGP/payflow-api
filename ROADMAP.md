@@ -77,6 +77,32 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 | Locks con orden determinístico (anti-deadlock) | ✅ |
 | Swagger / OpenAPI en /docs | ✅ |
 
+---
+
+## PENDIENTES Y DEUDA TÉCNICA
+
+> Gaps reales encontrados al leer el código. No bloquean el avance, pero deben resolverse antes de v1.0.0.
+
+### Pendientes de Fase 2
+
+| # | Archivo | Descripción | Prioridad | Resuelto en |
+|---|---|---|---|---|
+| P2-1 | `src/routes/webhooks.ts` | Rutas `/mercadopago` y `/stripe` son stubs que devuelven un mensaje de texto. Los adapters existen pero no están conectados al `processPaymentUpdate`. | 🔴 Alta | Fase 4 (Day 20) o Fase 6 |
+| P2-2 | `src/workers/outboxWorker.ts` | `dispatch()` es un no-op: logea los eventos pero no entrega nada. Los TODOs del código apuntan a Day 12 (BullMQ) y Day 20 (Resend). | 🔴 Alta | Day 12 → Fase 6 / Day 20 → Fase 4 |
+| P2-3 | `src/jobs/reconcile.ts` | La alerta de "pago sin resolver por más de 20 min" solo escribe a stdout. No envía email ni dispara SSE. | 🟡 Media | Fase 6 (Day 25 Dashboard) |
+| P2-4 | `packages/payment-providers` | MercadoPago adapter no testeado con credenciales reales (solo Stripe con sandbox). | 🟡 Media | Fase 7 (deploy) |
+
+### Pendientes de Fase 3
+
+| # | Archivo | Descripción | Prioridad | Resuelto en |
+|---|---|---|---|---|
+| P3-1 | `src/services/accountService.ts:110` | `transitionAccount` hace `findFirst` + `update` sin `SELECT FOR UPDATE`. Dos freeze concurrentes podrían aplicarse dos veces. Riesgo bajo (el resultado final es idempotente), pero es una inconsistencia con el contrato de la Regla de Negocio #2. | 🟡 Media | Fase 7 (tests de integración) |
+| P3-2 | `src/services/transactionService.ts:359` | `reverseTransaction` no captura `P2002`. Si dos reversos concurrentes pasan el guard `original.reversedBy`, el segundo falla con error no controlado en vez de devolver la transacción ganadora. | 🔴 Alta | Antes de Fase 5 |
+| P3-3 | `src/routes/transactions.ts:76` | Los handlers de error usan `err.message?.includes(...)` — string matching frágil. Si el mensaje cambia, el handler deja de funcionar silenciosamente. Debería usar errores tipados. | 🟡 Media | Fase 7 (refactor) |
+| P3-4 | `src/lib/openapi.ts` | El spec OpenAPI cubre Fase 3 (accounts, transactions) pero no Fase 1/2: no documenta `/api/auth`, `/api/keys`, `/api/2fa`, `/api/payments`, `/api/webhooks`. | 🟡 Media | Fase 6 (Day 28 logging) |
+
+---
+
 ### Fase 4 — Frontend (Días 16–20) ⏳
 | Tarea | Estado |
 |---|---|
@@ -121,10 +147,10 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 ## SESIÓN ACTUAL
 
-**Fecha:** ___________
-**Día:** ___________
-**Tarea activa:** ___________
-**Bloqueantes:** ___________
+**Fecha:** 2026-04-30
+**Día:** Días 16–20
+**Tarea activa:** Fase 4 — Frontend (shell + auth + checkout + emails)
+**Bloqueantes:** —
 
 ---
 
@@ -1443,10 +1469,11 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 | 2026-04-26 | Días 12–13 | OutboxWorker (SKIP LOCKED, backoff cap), reconciliación (thresholds distintos), Stripe adapter (sandbox OK), MercadoPago adapter (pendiente credenciales) | Fase 2 completa |
 | 2026-04-26 | Días 14–15 | Plan de Fase 3 diseñado y aprobado: double-entry ledger (Account + Transaction + LedgerEntry), state machine, idempotencia con ventana 60s, locks determinísticos anti-deadlock, Swagger OpenAPI | Diseño revisado en profundidad con ChatGPT — nivel production real |
 | 2026-04-27 | Días 14–15 | Fase 3 completada: migración aplicada, schemas Zod, accountService + transactionService, rutas /accounts y /transactions, spec OpenAPI 3.0 completa en /docs | double-entry ledger, state machine ACTIVE↔FROZEN→CLOSED, idempotencia P2002 race-safe, SELECT FOR UPDATE anti-deadlock, close endpoint con guard balance=0 |
+| 2026-04-30 | CI | CI GitHub Actions: type-check en 2 jobs (payment-providers full + api solo schemas sin Prisma). Adapters Stripe v22 + MercadoPago v2 corregidos. Análisis de deuda técnica Fase 2/3 documentado. | Prisma 6 requiere >7 GB RAM para tsc completo — VS Code valida servicios/rutas en local, CI valida el resto |
 
 ---
 
-*Roadmap actualizado: 2026-04-27*
+*Roadmap actualizado: 2026-04-30*
 *Objetivo: Template full-stack de pagos vendible en $149–199*
 *Stack: TypeScript + Next.js 14 + Hono + Prisma + PostgreSQL + Turborepo*
 *APIs de pago: MercadoPago + Stripe (intercambiables, el template nunca toca datos de tarjetas)*
