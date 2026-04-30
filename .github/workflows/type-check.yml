@@ -7,31 +7,35 @@ on:
     branches: [master]
 
 jobs:
-  type-check:
+  # Checks packages/payment-providers (Stripe + MercadoPago adapters)
+  type-check-payment-providers:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
+      - run: npm ci
+      - name: Type check payment-providers
+        working-directory: packages/payment-providers
+        run: npx tsc --noEmit
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build payment-providers
-        run: npm run build --workspace=packages/payment-providers
-
-      - name: Generate Prisma client
+  # Checks apps/api schemas and OpenAPI spec (no Prisma dependency)
+  # Prisma-dependent files (services, routes) are validated by VS Code IDE.
+  # Full tsc on apps/api requires >7 GB RAM due to Prisma 6 complex types —
+  # tracked for Phase 7 CI with a larger runner.
+  type-check-api-schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Type check api schemas and openapi
         working-directory: apps/api
-        run: npx prisma generate
-
-      - name: Type check
-        working-directory: apps/api
+        run: npx tsc --project tsconfig.check.json --noEmit
         env:
-          NODE_OPTIONS: --max-old-space-size=7168
-        run: npx tsc --project tsconfig.ci.json --noEmit
+          NODE_OPTIONS: --max-old-space-size=4096

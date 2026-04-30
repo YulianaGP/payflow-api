@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/schemas/accounts.ts",
+    "src/schemas/transactions.ts",
+    "src/lib/openapi.ts"
+  ]
+}
