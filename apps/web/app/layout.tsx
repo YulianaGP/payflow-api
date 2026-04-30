@@ -9,11 +9,8 @@ export const metadata: Metadata = {
   description: "Payment template — accept payments in minutes",
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+// Thin root layout — locale-specific providers go in app/[locale]/layout.tsx
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>{children}</body>

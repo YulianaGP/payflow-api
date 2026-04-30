@@ -1,0 +1,47 @@
+{
+  "common": {
+    "loading": "Cargando...",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "back": "Volver",
+    "error": "Algo salió mal"
+  },
+  "auth": {
+    "login": "Iniciar sesión",
+    "register": "Crear cuenta",
+    "logout": "Cerrar sesión",
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "noAccount": "¿No tenés cuenta?",
+    "haveAccount": "¿Ya tenés cuenta?",
+    "consent": "Acepto el tratamiento de mis datos personales",
+    "consentRequired": "Debés aceptar los términos para continuar"
+  },
+  "payment": {
+    "pending": "Verificando tu pago...",
+    "pendingNote": "Si no recibís confirmación, tu tarjeta NO fue cargada.",
+    "success": "Pago confirmado",
+    "failed": "Pago fallido",
+    "checkAgain": "Verificar nuevamente",
+    "contactSupport": "Contactar soporte",
+    "timedOut": "No pudimos confirmar tu pago automáticamente.",
+    "alreadyPaid": "Este pedido ya fue pagado",
+    "errors": {
+      "insufficient_funds": "Fondos insuficientes en tu tarjeta",
+      "card_declined": "Tarjeta rechazada — contactá a tu banco",
+      "expired_card": "Tu tarjeta está vencida",
+      "incorrect_cvc": "Código de seguridad incorrecto",
+      "processing_error": "Error de procesamiento — tu tarjeta NO fue cargada",
+      "INSUFFICIENT_BALANCE": "Saldo insuficiente en la cuenta",
+      "CURRENCY_MISMATCH": "Las monedas de las cuentas no coinciden"
+    }
+  },
+  "dashboard": {
+    "title": "Panel",
+    "payments": "Pagos",
+    "accounts": "Cuentas",
+    "transactions": "Transacciones",
+    "settings": "Configuración"
+  }
+}

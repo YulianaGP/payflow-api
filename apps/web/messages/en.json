@@ -1,0 +1,47 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "error": "Something went wrong"
+  },
+  "auth": {
+    "login": "Sign in",
+    "register": "Create account",
+    "logout": "Sign out",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "Don't have an account?",
+    "haveAccount": "Already have an account?",
+    "consent": "I agree to the processing of my personal data",
+    "consentRequired": "You must accept the terms to continue"
+  },
+  "payment": {
+    "pending": "Verifying your payment...",
+    "pendingNote": "If you don't receive a confirmation, your card was NOT charged.",
+    "success": "Payment confirmed",
+    "failed": "Payment failed",
+    "checkAgain": "Check again",
+    "contactSupport": "Contact support",
+    "timedOut": "We couldn't confirm your payment automatically.",
+    "alreadyPaid": "This order has already been paid",
+    "errors": {
+      "insufficient_funds": "Insufficient funds on your card",
+      "card_declined": "Card declined — contact your bank",
+      "expired_card": "Your card is expired",
+      "incorrect_cvc": "Incorrect security code",
+      "processing_error": "Processing error — your card was NOT charged",
+      "INSUFFICIENT_BALANCE": "Insufficient account balance",
+      "CURRENCY_MISMATCH": "Currency mismatch between accounts"
+    }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "payments": "Payments",
+    "accounts": "Accounts",
+    "transactions": "Transactions",
+    "settings": "Settings"
+  }
+}
