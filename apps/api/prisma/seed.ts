@@ -26,11 +26,13 @@ async function main(): Promise<void> {
   await db.deadLetterEvent.deleteMany()
   await db.outboxEvent.deleteMany()
   await db.payment.deleteMany()
+  await db.subscriptionAuditLog.deleteMany()
   await db.subscription.deleteMany()
   await db.plan.deleteMany()
   await db.apiKey.deleteMany()
   await db.twoFactorAuth.deleteMany()
   await db.revokedSession.deleteMany()
+  await db.passwordResetToken.deleteMany()
   await db.userConsent.deleteMany()
   await db.user.deleteMany()
   await db.merchant.deleteMany()
@@ -285,6 +287,8 @@ async function main(): Promise<void> {
       status: SubscriptionStatus.ACTIVE,
       currentPeriodStart: lastMonth,
       currentPeriodEnd: nextMonth,
+      unitPrice: proPlan.price,
+      currency: proPlan.currency,
       provider: "mercadopago",
       externalId: "mp_sub_001",
     },
@@ -298,8 +302,11 @@ async function main(): Promise<void> {
       status: SubscriptionStatus.PAST_DUE,
       currentPeriodStart: lastMonth,
       currentPeriodEnd: now,
-      failedPaymentCount: 2,
       gracePeriodEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      firstPaymentFailureAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      nextDunningAttemptAt: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
+      unitPrice: basicPlan.price,
+      currency: basicPlan.currency,
       provider: "mercadopago",
       externalId: "mp_sub_002",
     },
@@ -314,6 +321,8 @@ async function main(): Promise<void> {
       currentPeriodStart: lastMonth,
       currentPeriodEnd: lastMonth,
       cancelAtPeriodEnd: false,
+      unitPrice: enterprisePlan.price,
+      currency: enterprisePlan.currency,
       provider: "stripe",
       externalId: "sub_stripe_001",
     },

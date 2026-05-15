@@ -69,11 +69,12 @@ model User {
   merchantId String?
   merchant   Merchant? @relation(fields: [merchantId], references: [id])
 
-  apiKeys        ApiKey[]
-  twoFactorAuth  TwoFactorAuth?
-  revokedSessions RevokedSession[]
-  consent        UserConsent?
-  subscriptions  Subscription[]
+  apiKeys             ApiKey[]
+  twoFactorAuth       TwoFactorAuth?
+  revokedSessions     RevokedSession[]
+  consent             UserConsent?
+  subscriptions       Subscription[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model ApiKey {
@@ -120,6 +121,19 @@ model UserConsent {
   ipAddress  String
   userAgent  String
   version    String   @default("1.0") // terms version accepted
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([token])
+  @@index([userId, createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -171,6 +185,8 @@ model Payment {
   provider         String        // 'mercadopago' | 'stripe' | 'mock'
   externalId       String?       // provider's payment ID (arrives via webhook)
   idempotencyKey   String?       @unique
+  subscriptionId   String?       // null for one-time payments; set for subscription renewals
+  subscription     Subscription? @relation(fields: [subscriptionId], references: [id])
   metadata         Json?
   items            Json?         // array of OrderItem for multi-product orders
 
@@ -356,15 +372,45 @@ model Subscription {
   cancelAtPeriodEnd  Boolean            @default(false)
   trialEndsAt        DateTime?
   gracePeriodEndsAt  DateTime?          // PAST_DUE → auto-CANCELED when this date passes
-  failedPaymentCount Int                @default(0) // dunning counter
-  creditBalance      Int                @default(0) // accumulated credit from downgrades
+
+  // Dunning — based on real timestamps, not execution count of the cron
+  // Invariant: nextDunningAttemptAt drives the cron (WHERE nextDunningAttemptAt <= NOW())
+  firstPaymentFailureAt DateTime?       // anchors the day-1/3/7/14 retry schedule
+  lastDunningAttemptAt  DateTime?
+  nextDunningAttemptAt  DateTime?
+
+  // Immutable pricing snapshot — Subscription.unitPrice is the source of truth for proration,
+  // never Plan.price. If the plan changes price, existing subscriptions are unaffected.
+  unitPrice          Int                // in cents, snapshot at subscription time
+  currency           String             // denormalized — mirrors Plan.currency at subscribe time
+
+  creditBalance      Int                @default(0) // accumulated credit from downgrades (cents)
   externalId         String?            // subscription ID at provider
   provider           String
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
+  payments           Payment[]
+  auditLogs          SubscriptionAuditLog[]
+
   @@index([status, gracePeriodEndsAt])
+  @@index([status, nextDunningAttemptAt])
   @@index([userId])
+}
+
+// Immutable audit log for subscription state changes — same pattern as PaymentAuditLog
+// NO updatedAt — these records are NEVER modified, only appended
+model SubscriptionAuditLog {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  fromStatus     String
+  toStatus       String
+  changedBy      String       // 'system' | 'dunning' | 'webhook' | 'user:userId' | 'admin:userId'
+  metadata       Json         // context: reason, planId, amount, proration details, etc.
+  createdAt      DateTime     @default(now())
+
+  @@index([subscriptionId, createdAt])
 }
 
 // ─────────────────────────────────────────────

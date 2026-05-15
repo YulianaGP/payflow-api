@@ -89,11 +89,66 @@ export type TransactionListResult = {
   nextCursor: string | null
 }
 
+// ─── Subscriptions ───────────────────────────────────────────────────────────
+
+export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "CANCELED" | "PAUSED"
+
+export type PlanDTO = {
+  id: string
+  merchantId: string
+  name: string
+  description: string | null
+  price: number       // in cents
+  currency: string
+  interval: string
+  intervalCount: number
+  trialDays: number
+  isActive: boolean
+  createdAt: string
+}
+
+export type SubscriptionDTO = {
+  id: string
+  merchantId: string
+  userId: string
+  planId: string
+  status: SubscriptionStatus
+  currentPeriodStart: string
+  currentPeriodEnd: string
+  trialEndsAt: string | null
+  cancelAtPeriodEnd: boolean
+  unitPrice: number   // price snapshot at subscription time
+  currency: string
+  creditBalance: number
+  provider: string
+  externalId: string | null
+  createdAt: string
+  updatedAt: string
+  plan: { name: string; interval: string; intervalCount: number }
+}
+
+export type PlanChangePreviewDTO = {
+  currentPlan: { id: string; name: string; price: number }
+  newPlan: { id: string; name: string; price: number }
+  daysRemaining: number
+  daysInPeriod: number
+  creditCents: number
+  chargeCents: number
+  creditBalanceCents: number
+  netChargeCents: number
+  appliedNextPeriod: boolean
+}
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export type AuthResult = {
   token: string
-  userId: string
-  merchantId: string
   expiresAt: string
+  user: {
+    id: string
+    email: string
+    name: string | null
+    role: string
+    merchantId: string
+  }
 }

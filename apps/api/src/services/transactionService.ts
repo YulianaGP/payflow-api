@@ -1,7 +1,15 @@
-import { type Prisma, PrismaClientKnownRequestError, TransactionStatus } from "@prisma/client"
+import { Prisma, TransactionStatus } from "@prisma/client"
 import { db } from "../lib/db.js"
 import { sha256 } from "../lib/crypto.js"
-import { assertAccountActive, assertSufficientBalance, AccountNotFoundError } from "./accountService.js"
+import {
+  assertAccountActive,
+  assertSufficientBalance,
+  AccountNotFoundError,
+  CurrencyMismatchError,
+  TransactionNotFoundError,
+  AlreadyReversedError,
+  InvalidStatusTransitionError,
+} from "./accountService.js"
 import type { CreateTransactionInput } from "../schemas/transactions.js"
 
 // Scalar-only Account shape for raw SQL queries (SELECT * does not include relations)
@@ -127,17 +135,17 @@ async function commitTransaction(
   const transaction = await tx.transaction.create({
     data: {
       merchantId: data.merchantId,
-      debitAccountId: data.debitAccountId,
-      creditAccountId: data.creditAccountId,
+      debitAccountId: data.debitAccountId ?? null,
+      creditAccountId: data.creditAccountId ?? null,
       type: data.type as any,
       status: "COMPLETED",
       amount: data.amount,
       currency: data.currency,
-      description: data.description,
+      description: data.description ?? null,
       metadata: data.metadata as any,
       idempotencyKey: data.idempotencyKey,
       createdBy: data.createdBy,
-      reversalOfId: data.reversalOfId,
+      reversalOfId: data.reversalOfId ?? null,
     },
   })
 
@@ -192,7 +200,7 @@ export async function createTransaction(
       creditAccountId: "creditAccountId" in input ? input.creditAccountId : null,
       amount: input.amount,
       type: input.type,
-      description: input.description,
+      description: input.description ?? null,
     },
     input.idempotencyKey
   )
@@ -224,7 +232,7 @@ export async function createTransaction(
   } catch (err) {
     // Race condition: two concurrent requests passed the optimistic check.
     // The second one hits the unique constraint — fetch and return the winner's result.
-    if (err instanceof PrismaClientKnownRequestError && err.code === "P2002") {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const raced = await findByIdempotencyKey(context.merchantId, idempotencyKey)
       if (raced) {
         console.info(JSON.stringify({
@@ -255,12 +263,14 @@ async function executeTransfer(
   assertAccountActive(credit)
 
   if (debit.currency !== credit.currency) {
-    throw new Error(
+    throw new CurrencyMismatchError(
       `Currency mismatch: debit account is ${debit.currency}, credit account is ${credit.currency}`
     )
   }
   if (debit.currency !== input.currency) {
-    throw new Error(`Transaction currency ${input.currency} does not match account currency ${debit.currency}`)
+    throw new CurrencyMismatchError(
+      `Transaction currency ${input.currency} does not match account currency ${debit.currency}`
+    )
   }
 
   assertSufficientBalance(debit, input.amount)
@@ -278,8 +288,8 @@ async function executeTransfer(
     type: "TRANSFER",
     amount: input.amount,
     currency: input.currency,
-    description: input.description,
-    metadata: input.metadata,
+    description: input.description ?? null,
+    metadata: input.metadata ?? null,
     idempotencyKey,
     createdBy: `user:${context.userId}`,
     entries,
@@ -298,7 +308,9 @@ async function executeDeposit(
   assertAccountActive(credit)
 
   if (credit.currency !== input.currency) {
-    throw new Error(`Transaction currency ${input.currency} does not match account currency ${credit.currency}`)
+    throw new CurrencyMismatchError(
+      `Transaction currency ${input.currency} does not match account currency ${credit.currency}`
+    )
   }
 
   // DEPOSIT has no internal counterpart — one entry only (documented limitation)
@@ -312,8 +324,8 @@ async function executeDeposit(
     type: "DEPOSIT",
     amount: input.amount,
     currency: input.currency,
-    description: input.description,
-    metadata: input.metadata,
+    description: input.description ?? null,
+    metadata: input.metadata ?? null,
     idempotencyKey,
     createdBy: `user:${context.userId}`,
     entries,
@@ -332,7 +344,9 @@ async function executeWithdrawal(
   assertAccountActive(debit)
 
   if (debit.currency !== input.currency) {
-    throw new Error(`Transaction currency ${input.currency} does not match account currency ${debit.currency}`)
+    throw new CurrencyMismatchError(
+      `Transaction currency ${input.currency} does not match account currency ${debit.currency}`
+    )
   }
 
   assertSufficientBalance(debit, input.amount)
@@ -348,8 +362,8 @@ async function executeWithdrawal(
     type: "WITHDRAWAL",
     amount: input.amount,
     currency: input.currency,
-    description: input.description,
-    metadata: input.metadata,
+    description: input.description ?? null,
+    metadata: input.metadata ?? null,
     idempotencyKey,
     createdBy: `user:${context.userId}`,
     entries,
@@ -365,12 +379,14 @@ export async function reverseTransaction(
     include: { ledgerEntries: true, reversedBy: true },
   })
 
-  if (!original) throw new Error(`Transaction ${originalId} not found`)
+  if (!original) throw new TransactionNotFoundError(originalId)
   if (original.status !== TransactionStatus.COMPLETED) {
-    throw new Error(`Only COMPLETED transactions can be reversed (current: ${original.status})`)
+    throw new InvalidStatusTransitionError(
+      `Only COMPLETED transactions can be reversed (current: ${original.status})`
+    )
   }
   if (original.reversedBy) {
-    throw new Error(`Transaction ${originalId} has already been reversed`)
+    throw new AlreadyReversedError(originalId)
   }
 
   const accountIds = original.ledgerEntries.map((e) => e.accountId)
@@ -378,60 +394,79 @@ export async function reverseTransaction(
     { merchantId: context.merchantId, amount: original.amount, type: "REFUND", description: `reversal:${originalId}` },
   )
 
-  const result = await db.$transaction(async (tx) => {
-    const accounts = await acquireAccountLocks(tx, accountIds)
+  try {
+    const result = await db.$transaction(async (tx) => {
+      const accounts = await acquireAccountLocks(tx, accountIds)
 
-    // Invert every ledger entry from the original transaction
-    const entries: LedgerEntryDraft[] = original.ledgerEntries.map((e) => {
-      const account = accounts.get(e.accountId)!
-      const invertedAmount = -e.amount
-      return {
-        accountId: e.accountId,
-        type: (invertedAmount > 0 ? "credit" : "debit") as "credit" | "debit",
-        amount: invertedAmount,
-        currency: e.currency,
-        balanceAfter: account.balance + invertedAmount,
-      }
-    })
+      // Invert every ledger entry from the original transaction
+      const entries: LedgerEntryDraft[] = original.ledgerEntries.map((e) => {
+        const account = accounts.get(e.accountId)!
+        const invertedAmount = -e.amount
+        return {
+          accountId: e.accountId,
+          type: (invertedAmount > 0 ? "credit" : "debit") as "credit" | "debit",
+          amount: invertedAmount,
+          currency: e.currency,
+          balanceAfter: account.balance + invertedAmount,
+        }
+      })
 
-    // Verify sufficient balance for debit sides of the reversal
-    for (const entry of entries) {
-      if (entry.amount < 0) {
-        const account = accounts.get(entry.accountId)!
-        if (account.balance < -entry.amount) {
-          throw new Error(
-            `Insufficient balance in account ${entry.accountId} to process reversal`
-          )
+      // Verify sufficient balance for debit sides of the reversal
+      for (const entry of entries) {
+        if (entry.amount < 0) {
+          const account = accounts.get(entry.accountId)!
+          if (account.balance < -entry.amount) {
+            throw new Error(
+              `Insufficient balance in account ${entry.accountId} to process reversal`
+            )
+          }
         }
       }
+
+      // REFUND (2-entry reversal) must sum to 0
+      if (entries.length === 2) assertLedgerBalance(entries)
+
+      const reversal = await commitTransaction(tx, {
+        merchantId: context.merchantId,
+        debitAccountId: original.creditAccountId,
+        creditAccountId: original.debitAccountId,
+        type: "REFUND",
+        amount: original.amount,
+        currency: original.currency,
+        description: `Reversal of transaction ${originalId}`,
+        idempotencyKey,
+        createdBy: `user:${context.userId}`,
+        reversalOfId: originalId,
+        entries,
+      })
+
+      await tx.transaction.update({
+        where: { id: originalId },
+        data: { status: TransactionStatus.REVERSED },
+      })
+
+      return reversal
+    })
+
+    return { transaction: result as any, replayed: false }
+  } catch (err) {
+    // Race condition: two concurrent reversal requests both passed the optimistic guard.
+    // The second hits the unique constraint on idempotencyKey — return the winner's result.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const raced = await findByIdempotencyKey(context.merchantId, idempotencyKey)
+      if (raced) {
+        console.info(JSON.stringify({
+          event: "idempotent_replay",
+          transactionId: raced.id,
+          merchantId: context.merchantId,
+          idempotencyKey,
+          reason: "race_condition_reversal",
+        }))
+        return { transaction: raced as any, replayed: true }
+      }
     }
-
-    // REFUND (2-entry reversal) must sum to 0
-    if (entries.length === 2) assertLedgerBalance(entries)
-
-    const reversal = await commitTransaction(tx, {
-      merchantId: context.merchantId,
-      debitAccountId: original.creditAccountId,
-      creditAccountId: original.debitAccountId,
-      type: "REFUND",
-      amount: original.amount,
-      currency: original.currency,
-      description: `Reversal of transaction ${originalId}`,
-      idempotencyKey,
-      createdBy: `user:${context.userId}`,
-      reversalOfId: originalId,
-      entries,
-    })
-
-    await tx.transaction.update({
-      where: { id: originalId },
-      data: { status: TransactionStatus.REVERSED },
-    })
-
-    return reversal
-  })
-
-  return { transaction: result as any, replayed: false }
+    throw err
+  }
 }
 
 export async function getTransaction(id: string, merchantId: string) {
@@ -439,7 +474,7 @@ export async function getTransaction(id: string, merchantId: string) {
     where: { id, merchantId },
     include: { ledgerEntries: { orderBy: { createdAt: "asc" } } },
   })
-  if (!tx) throw new Error(`Transaction ${id} not found`)
+  if (!tx) throw new TransactionNotFoundError(id)
   return tx
 }
 

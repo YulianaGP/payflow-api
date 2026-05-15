@@ -45,6 +45,46 @@ export class AccountClosedError extends Error {
   }
 }
 
+export class InsufficientBalanceError extends Error {
+  readonly code = "INSUFFICIENT_BALANCE"
+  constructor(accountId: string, balance: number, needed: number) {
+    super(`Insufficient balance in account ${accountId}: has ${balance}, needs ${needed}`)
+    this.name = "InsufficientBalanceError"
+  }
+}
+
+export class CurrencyMismatchError extends Error {
+  readonly code = "CURRENCY_MISMATCH"
+  constructor(message: string) {
+    super(message)
+    this.name = "CurrencyMismatchError"
+  }
+}
+
+export class TransactionNotFoundError extends Error {
+  readonly code = "TRANSACTION_NOT_FOUND"
+  constructor(id: string) {
+    super(`Transaction ${id} not found`)
+    this.name = "TransactionNotFoundError"
+  }
+}
+
+export class AlreadyReversedError extends Error {
+  readonly code = "ALREADY_REVERSED"
+  constructor(id: string) {
+    super(`Transaction ${id} has already been reversed`)
+    this.name = "AlreadyReversedError"
+  }
+}
+
+export class InvalidStatusTransitionError extends Error {
+  readonly code = "INVALID_STATE_TRANSITION"
+  constructor(message: string) {
+    super(message)
+    this.name = "InvalidStatusTransitionError"
+  }
+}
+
 function applyTransition(account: Account, transition: AccountTransition): AccountStatus {
   const allowed = VALID_TRANSITIONS[account.status]
   if (!allowed.includes(transition)) {
@@ -145,8 +185,6 @@ export function assertAccountActive(account: { id: string; status: string }): vo
 
 export function assertSufficientBalance(account: { id: string; balance: number }, amount: number): void {
   if (account.balance < amount) {
-    throw new Error(
-      `Insufficient balance in account ${account.id}: has ${account.balance}, needs ${amount}`
-    )
+    throw new InsufficientBalanceError(account.id, account.balance, amount)
   }
 }

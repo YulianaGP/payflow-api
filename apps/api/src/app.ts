@@ -10,6 +10,8 @@ import { paymentsRouter } from "./routes/payments.js"
 import { webhooksRouter } from "./routes/webhooks.js"
 import { accountsRouter } from "./routes/accounts.js"
 import { transactionsRouter } from "./routes/transactions.js"
+import { plansRouter } from "./routes/plans.js"
+import { subscriptionsRouter } from "./routes/subscriptions.js"
 import { openApiSpec } from "./lib/openapi.js"
 
 export const app = new Hono()
@@ -41,3 +43,5 @@ app.route("/api/payments", paymentsRouter)
 app.route("/api/webhooks", webhooksRouter)
 app.route("/api/accounts", accountsRouter)
 app.route("/api/transactions", transactionsRouter)
+app.route("/api/plans", plansRouter)
+app.route("/api/subscriptions", subscriptionsRouter)

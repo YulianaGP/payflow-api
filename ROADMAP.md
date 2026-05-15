@@ -87,8 +87,8 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 | # | Archivo | Descripción | Prioridad | Resuelto en |
 |---|---|---|---|---|
-| P2-1 | `src/routes/webhooks.ts` | Rutas `/mercadopago` y `/stripe` son stubs que devuelven un mensaje de texto. Los adapters existen pero no están conectados al `processPaymentUpdate`. | 🔴 Alta | Fase 4 (Day 20) o Fase 6 |
-| P2-2 | `src/workers/outboxWorker.ts` | `dispatch()` es un no-op: logea los eventos pero no entrega nada. Los TODOs del código apuntan a Day 12 (BullMQ) y Day 20 (Resend). | 🔴 Alta | Day 12 → Fase 6 / Day 20 → Fase 4 |
+| P2-1 | `src/routes/webhooks.ts` | Rutas `/mercadopago` y `/stripe` son stubs que devuelven un mensaje de texto. Los adapters existen pero no están conectados al `processPaymentUpdate`. | ~~🔴 Alta~~ | ✅ Resuelto en Fase 4 (Day 20) |
+| P2-2 | `src/workers/outboxWorker.ts` | `dispatch()` es un no-op: logea los eventos pero no entrega nada. Los TODOs del código apuntan a Day 12 (BullMQ) y Day 20 (Resend). | ~~🔴 Alta~~ | ✅ Email (Resend) resuelto en Fase 4. BullMQ → Fase 6 |
 | P2-3 | `src/jobs/reconcile.ts` | La alerta de "pago sin resolver por más de 20 min" solo escribe a stdout. No envía email ni dispara SSE. | 🟡 Media | Fase 6 (Day 25 Dashboard) |
 | P2-4 | `packages/payment-providers` | MercadoPago adapter no testeado con credenciales reales (solo Stripe con sandbox). | 🟡 Media | Fase 7 (deploy) |
 
@@ -97,27 +97,31 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 | # | Archivo | Descripción | Prioridad | Resuelto en |
 |---|---|---|---|---|
 | P3-1 | `src/services/accountService.ts:110` | `transitionAccount` hace `findFirst` + `update` sin `SELECT FOR UPDATE`. Dos freeze concurrentes podrían aplicarse dos veces. Riesgo bajo (el resultado final es idempotente), pero es una inconsistencia con el contrato de la Regla de Negocio #2. | 🟡 Media | Fase 7 (tests de integración) |
-| P3-2 | `src/services/transactionService.ts:359` | `reverseTransaction` no captura `P2002`. Si dos reversos concurrentes pasan el guard `original.reversedBy`, el segundo falla con error no controlado en vez de devolver la transacción ganadora. | 🔴 Alta | Antes de Fase 5 |
-| P3-3 | `src/routes/transactions.ts:76` | Los handlers de error usan `err.message?.includes(...)` — string matching frágil. Si el mensaje cambia, el handler deja de funcionar silenciosamente. Debería usar errores tipados. | 🟡 Media | Fase 7 (refactor) |
+| P3-2 | `src/services/transactionService.ts:359` | `reverseTransaction` no captura `P2002`. Si dos reversos concurrentes pasan el guard `original.reversedBy`, el segundo falla con error no controlado en vez de devolver la transacción ganadora. | 🔴 Alta | **Pre-Fase 5** — bloqueante |
+| P3-3 | `src/routes/transactions.ts:76` | Los handlers de error usan `err.message?.includes(...)` — string matching frágil. Si el mensaje cambia, el handler deja de funcionar silenciosamente. Reemplazar con clases de error tipadas (`InsufficientBalanceError`, `AccountFrozenError`, `AccountNotFoundError`). | 🔴 Alta | **Pre-Fase 5** — bloqueante |
 | P3-4 | `src/lib/openapi.ts` | El spec OpenAPI cubre Fase 3 (accounts, transactions) pero no Fase 1/2: no documenta `/api/auth`, `/api/keys`, `/api/2fa`, `/api/payments`, `/api/webhooks`. | 🟡 Media | Fase 6 (Day 28 logging) |
 
 ---
 
-### Fase 4 — Frontend (Días 16–20) ⏳
+### Fase 4 — Frontend (Días 16–20) ✅ COMPLETADA
 | Tarea | Estado |
 |---|---|
-| Shell Next.js + shadcn/ui + dark mode | ⏳ |
-| Login, registro y consentimiento de datos | ⏳ |
-| i18n español/inglés + multi-moneda | ⏳ |
-| Checkout flow completo (éxito, fallo, pendiente) | ⏳ |
-| Emails transaccionales + PDF de comprobante | ⏳ |
+| Shell Next.js + shadcn/ui + dark mode | ✅ |
+| Login, registro y consentimiento de datos | ✅ |
+| i18n español/inglés + multi-moneda | ✅ |
+| Checkout flow completo (éxito, fallo, pendiente) | ✅ |
+| Emails transaccionales + PDF de comprobante | ✅ |
 
-### Fase 5 — Suscripciones (Días 21–23) ⏳
+### Fase 5 — Suscripciones (Días 21–23) ✅
 | Tarea | Estado |
 |---|---|
-| Planes + trials + cancelación | ⏳ |
-| Upgrades, downgrades y prorrateo | ⏳ |
-| Dunning + webhooks + edge cases | ⏳ |
+| **Pre-fase:** Fix P3-2 (P2002 en reverseTransaction) + typed errors (P3-3) | ✅ |
+| **Pre-fase:** Migración `phase5_subscriptions` (schema changes — ver abajo) | ✅ |
+| Day 21: Plans CRUD (admin) + `subscriptionService` state machine + crear/cancelar suscripción + cron trial | ✅ |
+| Day 21: Frontend `/pricing` (pública) + `/dashboard/subscription` (esqueleto) | ✅ |
+| Day 22: `changePlan` con prorrateo server-side + endpoint preview + frontend modal de confirmación | ✅ |
+| Day 23: `subscriptionDunning.ts` cron + webhook handlers MP+Stripe + edge cases | ✅ |
+| Day 23: Frontend banner PAST_DUE + flujo de cancelación con retención | ✅ |
 
 ### Fase 6 — Dashboard y features avanzados (Días 24–32) ⏳
 | Tarea | Estado |
@@ -147,10 +151,14 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 ## SESIÓN ACTUAL
 
-**Fecha:** 2026-04-30
-**Día:** Días 16–20
-**Tarea activa:** Fase 4 — Frontend (shell + auth + checkout + emails)
+**Fecha:** 2026-05-15
+**Día:** Fase 5 completada — comenzando Fase 6
+**Tarea activa:** —
 **Bloqueantes:** —
+**Siguiente:** Day 24 — Dashboard admin + SSE real-time
+
+**Pendiente de prueba manual:**
+- `npm run db:studio` en `apps/api` → editar suscripción a `PAST_DUE` con `nextDunningAttemptAt = now - 1h` → verificar que el dunning job la procesa en el próximo tick (máx 1h)
 
 ---
 
@@ -217,6 +225,7 @@ model Payment {
   confirmedAmount   Int?       // monto confirmado por el proveedor (debe coincidir con amount)
   confirmedCurrency String?    // moneda confirmada por el proveedor (debe coincidir con currency)
   idempotencyKey String?       @unique
+  subscriptionId String?       // null para pagos únicos — se llena para renovaciones de suscripción
   metadata       Json?
   items          Json?         // lista de items para órdenes con múltiples productos
   createdAt      DateTime      @default(now())
@@ -282,16 +291,39 @@ model Subscription {
   merchantId         String
   userId             String
   planId             String
-  status             SubscriptionStatus // ACTIVE | PAST_DUE | CANCELED | PAUSED | TRIALING
+  status             SubscriptionStatus // TRIALING | ACTIVE | PAST_DUE | CANCELED | PAUSED(reservado)
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
   cancelAtPeriodEnd  Boolean            @default(false)
   trialEndsAt        DateTime?
-  gracePeriodEndsAt  DateTime?
-  failedPaymentCount Int                @default(0)
-  creditBalance      Int                @default(0)
-  externalId         String?
+  gracePeriodEndsAt  DateTime?          // PAST_DUE → CANCELED cuando este campo <= NOW()
+
+  // Dunning — basado en fechas reales, no contador de ejecuciones del cron
+  firstPaymentFailureAt DateTime?       // cuándo falló el primer cobro (arranca el grace period)
+  lastDunningAttemptAt  DateTime?       // cuándo fue el último intento de cobro
+  nextDunningAttemptAt  DateTime?       // cuándo ejecutar el siguiente intento (cron: WHERE <= NOW())
+
+  // Snapshot de pricing inmutable — si Plan.price cambia, la suscripción mantiene su precio original
+  unitPrice          Int                // en centavos — snapshot al momento de suscribirse
+  currency           String             // denormalizado — igual que LedgerEntry
+
+  creditBalance      Int                @default(0) // crédito acumulado de downgrades (en centavos)
+  externalId         String?            // ID de suscripción en el proveedor (preapproval MP / sub Stripe)
   provider           String
+}
+
+// Audit log de suscripciones — inmutable, mismo patrón que PaymentAuditLog
+// SIN updatedAt — estos registros NUNCA se modifican
+model SubscriptionAuditLog {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  fromStatus     String
+  toStatus       String
+  changedBy      String   // 'system' | 'dunning' | 'webhook' | 'user:userId' | 'admin:userId'
+  metadata       Json     // contexto: reason, planId, amount, proration details, etc.
+  createdAt      DateTime @default(now())
+
+  @@index([subscriptionId, createdAt])
 }
 
 // CHARGEBACKS / DISPUTAS
@@ -458,6 +490,50 @@ model LedgerEntry {
 16. **Ledger — moneda entre cuentas:** en TRANSFER, `debitAccount.currency` debe ser igual a `creditAccount.currency`. Nunca convertir implícitamente.
 
 17. **Ledger — reversal:** solo transacciones COMPLETED pueden revertirse. Una sola reversión por transacción (`reversalOfId @unique`). Si la cuenta origen no tiene saldo para revertir → error `REVERSAL_INSUFFICIENT_FUNDS`, no saldo negativo.
+
+18. **Suscripciones — state machine centralizada:** todo cambio de `Subscription.status` debe pasar por `transitionSubscription({ from, to, reason, actor })`. Nunca hacer `prisma.subscription.update({ data: { status } })` directamente — saltarse esa función rompe outbox + audit log silenciosamente.
+
+19. **Suscripciones — atomicidad:** actualizar `Subscription.status` + crear `SubscriptionAuditLog` + crear `OutboxEvent` en la MISMA `$transaction`. Mismo patrón que pagos.
+
+20. **Suscripciones — cancelación:** solo se permite `cancelAtPeriodEnd: true`. No existe `cancel_immediately`. Esto elimina la ambigüedad de refund parcial, pérdida de acceso inmediato y crédito restante.
+
+21. **Suscripciones — pricing snapshot:** usar `Subscription.unitPrice` para cálculos de prorrateo, nunca `Plan.price`. El plan puede cambiar de precio; las suscripciones existentes mantienen el precio al que se suscribieron.
+
+22. **Suscripciones — prorrateo:** calcular en centavos enteros con días UTC completos. Fórmula: `floor(price * daysRemaining / daysInPeriod)`. Nunca floats. Nunca delegar el cálculo al proveedor — la lógica de prorrateo vive en el dominio, no en Stripe ni MP.
+
+23. **Suscripciones — dunning basado en fechas reales:** el cron procesa `WHERE nextDunningAttemptAt <= NOW()`. No asume que corrió exactamente una vez por día. El campo `firstPaymentFailureAt` ancla el schedule: Día 1, 3, 7, 14 son relativos a ese timestamp, no al contador de ejecuciones.
+
+24. **Suscripciones — idempotencia de renovaciones:** clave de idempotencia para webhooks de renovación: `sha256("renewal:" + subscriptionId + ":" + periodStart.toISOString())`. El `providerEventId` del proveedor es primera capa; este hash es segunda capa.
+
+25. **Suscripciones — cross-tenant:** verificar siempre `subscription.merchantId === auth.merchantId` antes de cualquier operación. Prohibir upgrades entre planes de monedas distintas.
+
+26. **Suscripciones — anti-trial abuse:** si el usuario ya tuvo una suscripción CANCELED a ese plan, no otorgar trial nuevamente. Verificar en `createSubscription`.
+
+---
+
+## DECISIONES DE ARQUITECTURA — FASE 5
+
+> Estas decisiones afectan todo el sistema de suscripciones. Leer antes de modificar cualquier archivo de suscripciones.
+
+### 1. Source of truth financiero
+La **DB es source of truth para estado de negocio** (quién tiene acceso, en qué plan, con qué precio). El **proveedor (Stripe/MP) es source of truth para ejecución de cobros** (si el dinero se movió realmente). Nunca confiar en el body del webhook para decidir si un usuario tiene acceso — eso lo decide la DB. Antes de marcar SUCCESS en DB, verificar con la API del proveedor que el cobro realmente ocurrió.
+
+### 2. Modelo de billing cycle
+`currentPeriodStart` + `currentPeriodEnd` ya están en el schema. Se actualizan en cada renovación exitosa dentro de la misma `$transaction` que actualiza `status`. No hay `billingAnchor` — la fecha del primer cobro es el ancla natural.
+
+### 3. Failure recovery
+El outbox pattern cubre la mayoría de casos. Para el gap específico "proveedor cobró pero la DB falló": antes de llamar al proveedor, crear `OutboxEvent` con `category: "subscription_renewal_pending"`. Después del cobro, marcarlo `sentAt`. El reconciliation job de Fase 2 se extiende para detectar eventos `in_progress` de más de 5 minutos y resolverlos consultando al proveedor. No se crea un nuevo modelo `ReconciliationTask` — el outbox existente es suficiente.
+
+### 4. Registros inmutables de suscripciones
+| Registro | Política |
+|---|---|
+| `SubscriptionAuditLog` | Nunca modificar — sin `updatedAt` por diseño |
+| `Subscription.unitPrice` | Nunca modificar después de crear |
+| `Subscription.currency` | Nunca modificar después de crear |
+| `Subscription.status` | Solo vía `transitionSubscription()` |
+
+### 5. Pricing versioning
+`Subscription.unitPrice` es el snapshot inmutable del precio al momento de suscribirse. Si `Plan.price` cambia, las suscripciones existentes no se ven afectadas. La migración `phase5_subscriptions` hace `SET unitPrice = (SELECT price FROM Plan WHERE id = planId)` para registros existentes. Un modelo `PlanVersion` completo queda fuera del scope de este template.
 
 ---
 
@@ -1072,58 +1148,267 @@ Cuerpo:
 
 ---
 
-## DÍA 21 — Suscripciones: modelo base + planes
+## PRE-FASE 5 — Deuda técnica bloqueante
 
-**Meta:** Planes y suscripciones funcionales con trials y cancelación.
+**Meta:** Dejar el código en estado limpio antes de agregar suscripciones. P3-2 y P3-3 son bugs reales que afectarían suscripciones (también usan reversals y manejo de errores).
 
-- [ ] Modelo `Plan`: `{ id, name, price, currency, interval, intervalCount, trialDays }`
-- [ ] Seed: Basic $9/mes, Pro $29/mes, Enterprise $99/mes
-- [ ] `createSubscription`, `activateSubscription`, `cancelSubscription(immediately: boolean)`
-- [ ] Endpoints: `POST /api/subscriptions`, `GET /api/subscriptions/:id`, `DELETE /api/subscriptions/:id`
-- [ ] Página `/pricing` con comparación de planes
+**Fix P3-2 — `reverseTransaction` race condition:**
+```typescript
+// src/services/transactionService.ts
+// Agregar el mismo bloque catch de P2002 que ya existe en createTransaction (línea 227)
+// al final del try/catch de reverseTransaction. Si dos reversales concurrentes pasan el
+// guard `original.reversedBy`, el segundo atrapa P2002 y devuelve el ganador.
+} catch (err) {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    const raced = await findByIdempotencyKey(context.merchantId, idempotencyKey)
+    if (raced) return { transaction: raced as any, replayed: true }
+  }
+  throw err
+}
+```
+
+**Fix P3-3 — Typed errors:**
+```typescript
+// src/services/errors.ts (archivo nuevo)
+export class InsufficientBalanceError extends Error {
+  readonly code = "INSUFFICIENT_BALANCE"
+  constructor(accountId: string) { super(`Insufficient balance in account ${accountId}`) }
+}
+export class AccountFrozenError extends Error {
+  readonly code = "ACCOUNT_FROZEN"
+}
+export class AccountNotFoundError extends Error {
+  readonly code = "ACCOUNT_NOT_FOUND"
+  constructor(accountId: string) { super(`Account ${accountId} not found`) }
+}
+// src/routes/transactions.ts — reemplazar string matching:
+// ❌ if (err.message?.includes("Insufficient balance"))
+// ✅ if (err instanceof InsufficientBalanceError)
+```
+
+**Migración `phase5_subscriptions`:**
+- Añadir `subscriptionId String?` a `Payment` → link a renovaciones
+- Añadir `unitPrice Int` + `currency String` a `Subscription` → snapshot de pricing
+- Reemplazar `failedPaymentCount Int` por `firstPaymentFailureAt DateTime?` + `lastDunningAttemptAt DateTime?` + `nextDunningAttemptAt DateTime?`
+- Crear modelo `SubscriptionAuditLog` (ver MODELOS DE BASE DE DATOS)
+- Seed: hacer `SET unitPrice = (SELECT price FROM Plan WHERE id = planId)` para registros existentes
+
+- [ ] Fix P3-2 en `transactionService.ts`
+- [ ] Crear `src/services/errors.ts` con typed errors
+- [ ] Refactorizar `src/routes/transactions.ts` y `src/services/accountService.ts` para usar typed errors
+- [ ] `prisma migrate dev --name phase5_subscriptions`
+- [ ] Actualizar seed para incluir `unitPrice` y `currency` en suscripciones existentes
+
+---
+
+## DÍA 21 — Suscripciones: planes + state machine + crear/cancelar
+
+**Meta:** Plans CRUD (solo admin), state machine explícita, crear suscripción con trial, cancelar al fin de período.
+
+**State machine — transiciones válidas:**
+```
+TRIALING  ──trial_ends + cobro_ok──►  ACTIVE
+TRIALING  ──trial_ends + cobro_falla──► PAST_DUE  (gracePeriodEndsAt = trialEndsAt + 14 días)
+TRIALING  ──cancel──►                 CANCELED (cancelAtPeriodEnd: true, sin cobro)
+ACTIVE    ──payment_fails──►          PAST_DUE (gracePeriodEndsAt = now() + 14 días)
+ACTIVE    ──cancel──►                 ACTIVE   (cancelAtPeriodEnd: true → CANCELED al final del período)
+PAST_DUE  ──payment_ok──►            ACTIVE   (reset firstPaymentFailureAt + nextDunningAttemptAt)
+PAST_DUE  ──grace_expires──►         CANCELED (cron diario)
+CANCELED  ──(ninguna)                terminal — no se puede reabrir
+```
+
+**Decisiones clave:**
+- **No existe `cancel_immediately`** — siempre `cancelAtPeriodEnd: true`. Elimina edge cases de refund y acceso
+- **No existe estado `INCOMPLETE`** — trial que falla en primer cobro va a `PAST_DUE` igual que ACTIVE
+- Idempotencia de `createSubscription`: si ya existe suscripción activa para `(userId, planId, merchantId)` → devolver la existente (no crear duplicado)
+- Anti-trial abuse: si el usuario ya tuvo una suscripción CANCELED a ese plan → `trialDays = 0` (no trial de nuevo)
+- Guard de tenencia cruzada: `planId` debe pertenecer al mismo `merchantId` del usuario
+
+**Endpoints:**
+```
+POST   /api/plans             → solo ADMIN — crea plan del merchant
+GET    /api/plans             → público — lista planes activos (para /pricing)
+GET    /api/plans/:id         → público — detalle de plan
+POST   /api/subscriptions     → crea suscripción (con o sin trial)
+GET    /api/subscriptions     → lista del usuario autenticado
+GET    /api/subscriptions/:id → solo el dueño o admin del merchant
+DELETE /api/subscriptions/:id → cancelación (cancelAtPeriodEnd: true)
+```
+
+**`createSubscription` flow:**
+```typescript
+// 1. Verificar que el plan existe y pertenece al merchantId del usuario
+// 2. Verificar que no hay suscripción activa para este (userId, planId)
+// 3. Verificar anti-trial abuse (si ya tuvo suscripción cancelada a este plan)
+// 4. Si plan.trialDays > 0 → status: TRIALING, trialEndsAt = now() + trialDays
+//    Si plan.trialDays === 0 → cobrar ahora → status: ACTIVE, primer Payment creado
+// 5. En $transaction: crear Subscription + SubscriptionAuditLog + OutboxEvent
+// 6. Outbox: email de bienvenida a la suscripción
+```
+
+**Cron — trial expiry** (`src/jobs/subscriptionTrialCheck.ts`):
+```typescript
+// Cada hora: WHERE status = TRIALING AND trialEndsAt <= NOW()
+// SELECT FOR UPDATE para evitar doble transición
+// Si cobro OK → TRIALING → ACTIVE, unitPriceAtSubscription = plan.price
+// Si cobro falla → TRIALING → PAST_DUE, gracePeriodEndsAt = now() + 14d
+```
+
+**Seed:**
+- Planes: Basic $9/mes, Pro $29/mes, Enterprise $99/mes (por merchant)
+- 3 suscripciones: una ACTIVE (Pro), una TRIALING (Basic), una PAST_DUE (Enterprise)
+- Cada una con `unitPrice` = precio del plan al momento de suscribirse
+
+**Frontend:**
+- `/pricing` — pública, sin auth, grid de planes con comparación de features
+  - Badge "Plan actual" si el usuario tiene suscripción activa a ese plan
+  - Botón "Empezar" → `/register` si no hay sesión, `POST /api/subscriptions` si hay sesión
+- `/dashboard/subscription` — esqueleto: estado, próximo cobro, nombre del plan
+
+- [ ] `src/services/subscriptionService.ts` con `transitionSubscription`, `createSubscription`, `cancelSubscription`
+- [ ] `src/routes/subscriptions.ts` con endpoints CRUD + guards de role y tenencia
+- [ ] `src/routes/plans.ts` con CRUD de planes (POST protegido con `role: ADMIN`)
+- [ ] `src/jobs/subscriptionTrialCheck.ts` — cron horario con `SELECT FOR UPDATE SKIP LOCKED`
+- [ ] Actualizar `outboxWorker.ts` dispatch: agregar `category: "subscription"` para emails de suscripción
+- [ ] Seed con planes y suscripciones de ejemplo
+- [ ] Frontend `/pricing` + esqueleto `/dashboard/subscription`
+- [ ] Tests: suscripción con trial → TRIALING, suscripción sin trial → ACTIVE + Payment, cancel → cancelAtPeriodEnd, anti-trial abuse → sin trial
 
 ---
 
 ## DÍA 22 — Suscripciones: upgrades, downgrades y prorrateo
 
-**Meta:** Cambio de plan con cobro o crédito proporcional al instante.
+**Meta:** Cambio de plan con cobro o crédito proporcional al instante. El usuario ve el breakdown antes de confirmar.
 
-```
-Upgrade día 15 de 30 ($29 → $99):
-  Crédito: ($29 / 30) * 15 = $14.50
-  Cargo:   ($99 / 30) * 15 = $49.50
-  Cobro inmediato: $35.00 → llamada a MP o Stripe
+**Fórmula de prorrateo — siempre en centavos enteros, días UTC:**
+```typescript
+// Usar Subscription.unitPrice (snapshot) — NUNCA Plan.price
+const daysRemaining = Math.ceil((currentPeriodEnd - now) / 86_400_000) // ms → días, UTC
+const daysInPeriod = Math.ceil((currentPeriodEnd - currentPeriodStart) / 86_400_000)
+
+const credit = Math.floor((subscription.unitPrice * daysRemaining) / daysInPeriod)
+const charge = Math.floor((newPlan.price * daysRemaining) / daysInPeriod)
+const netCharge = Math.max(0, charge - credit - subscription.creditBalance)
+
+// Caso borde: cambio el último día del ciclo (daysRemaining <= 1)
+// → NO prorratear, solo actualizar planId para el siguiente período
 ```
 
-- [ ] `changePlan(subscriptionId, newPlanId)` con prorrateo exacto
-- [ ] Diff negativo → acumular en `subscription.creditBalance`
-- [ ] Cambio el último día del ciclo → sin prorrateo, aplicar desde el siguiente ciclo
-- [ ] Modal de preview del prorrateo antes de confirmar el cambio
-- [ ] Tests: upgrade con cobro, downgrade con crédito, cambio el último día
+**Endpoint preview (antes de confirmar):**
+```
+GET /api/subscriptions/:id/plan-change-preview?newPlanId=X
+→ {
+    currentPlan:   { id, name, price },
+    newPlan:       { id, name, price },
+    daysRemaining: 15,
+    daysInPeriod:  30,
+    creditCents:   1450,   // crédito del plan actual
+    chargeCents:   4950,   // cargo del nuevo plan
+    creditBalanceCents: 0, // crédito acumulado de downgrades anteriores
+    netChargeCents: 3500,  // cobro neto hoy
+    appliedNextPeriod: false // true si cambio en último día
+  }
+```
+
+**`changePlan(subscriptionId, newPlanId, userId)` flow:**
+```typescript
+// 1. Verificar ownership + que newPlan pertenece al mismo merchant
+// 2. Prohibir cambio cross-currency (newPlan.currency !== subscription.currency → error)
+// 3. Calcular prorrateo (server-side — nunca confiar en valores del cliente)
+// 4. Si netCharge > 0: llamar al proveedor para cobrar
+//    Si proveedor falla → NO cambiar plan, devolver error. Status queda ACTIVE.
+// 5. En $transaction: actualizar planId + unitPrice + creditBalance + SubscriptionAuditLog + OutboxEvent
+// 6. Crear Payment con subscriptionId para historial financiero
+```
+
+**Nota arquitectural importante:** la llamada al proveedor (step 4) ocurre FUERA de la `$transaction` de Prisma. El patrón:
+1. Calcular y validar todo
+2. Llamar al proveedor (puede fallar — la DB no está en medio)
+3. Solo si cobro OK → abrir `$transaction` y actualizar DB
+
+**Frontend:**
+- Modal de cambio de plan: primero fetch al endpoint preview, mostrar breakdown claro
+- Botón "Confirmar" deshabilitado hasta que el usuario lea el resumen (checkbox "Entiendo que se me cobrará $X hoy")
+- Loading state en el botón — deshabilitar para evitar doble click
+- Manejo de error si el cobro falla: "No pudimos procesar el cobro. Tu plan actual se mantiene."
+
+- [ ] `changePlan()` en `subscriptionService.ts`
+- [ ] Endpoint `GET /api/subscriptions/:id/plan-change-preview`
+- [ ] Endpoint `POST /api/subscriptions/:id/change-plan`
+- [ ] Guard: prohibir cambio cross-currency + validar que newPlan pertenece al merchant
+- [ ] Actualizar `/dashboard/subscription` con botón "Cambiar plan" + modal
+- [ ] Tests: upgrade con cobro, downgrade con crédito acumulado, cambio último día sin cargo, cross-currency → error, proveedor falla → plan no cambia
 
 ---
 
 ## DÍA 23 — Suscripciones: dunning + webhooks + edge cases
 
-**Meta:** Reintentos automáticos en pagos fallidos. Todos los edge cases cubiertos.
+**Meta:** Reintentos automáticos en pagos fallidos. Webhook handlers para MP y Stripe. Todos los edge cases cubiertos.
 
+**Dunning schedule basado en fechas reales:**
 ```
-Pago falla → PAST_DUE, gracePeriodEndsAt = now() + 14 días
-  Día  1: reintento silencioso
-  Día  3: reintento + email de aviso
-  Día  7: reintento + email urgente
-  Día 14: CANCELED + email de cancelación
+Payment falla → PAST_DUE
+  firstPaymentFailureAt = now()
+  gracePeriodEndsAt     = now() + 14 días
+  nextDunningAttemptAt  = now() + 1 día   → reintento silencioso
+
+  +3 días desde firstPaymentFailureAt → reintento + email "actualiza tu método de pago"
+  +7 días desde firstPaymentFailureAt → reintento + email urgente "tu acceso está por vencer"
+  +14 días (gracePeriodEndsAt <= NOW()) → CANCELED + email de cancelación
+
+Cron: WHERE status = 'PAST_DUE' AND nextDunningAttemptAt <= NOW()
+      SELECT FOR UPDATE SKIP LOCKED — mismo patrón que outboxWorker
 ```
 
-**Edge cases críticos:**
-- Webhook de renovación duplicado → idempotency key: `(subscriptionId, periodStart)`
-- Usuario cancela durante trial → `cancelAtPeriodEnd: true`, no cobrar
-- Proveedor devuelve `pending` en renovación → esperar confirmación, no marcar como fallida
+**Webhook handlers por proveedor:**
 
-- [ ] `src/jobs/subscriptionDunning.ts` — cron diario
-- [ ] Handlers para: `subscription.renewed`, `subscription.payment_failed`, `subscription.canceled`
-- [ ] Todos con idempotencia (DÍA 11) y `SELECT FOR UPDATE` (DÍA 10)
-- [ ] Tests: 4 fallos → CANCELED, 2 fallos + éxito → ACTIVE, webhook duplicado → procesado 1 vez
+```typescript
+// Stripe
+"invoice.payment_succeeded" → renovación exitosa → PAST_DUE/ACTIVE → ACTIVE
+                               actualizar currentPeriodStart + currentPeriodEnd
+                               crear Payment con subscriptionId
+"invoice.payment_failed"    → marcar nextDunningAttemptAt
+"customer.subscription.deleted" → CANCELED (cancelación desde dashboard de Stripe)
+
+// MercadoPago
+"preapproval" con authorized_payment → renovación
+"preapproval" con cancelled → CANCELED
+```
+
+**Idempotencia de webhooks de renovación:**
+```typescript
+// Primera capa: providerEventId en PaymentEvent (@@unique([provider, externalEventId]))
+// Segunda capa: hash interno
+const renewalKey = sha256(`renewal:${subscriptionId}:${currentPeriodStart.toISOString()}`)
+// Si ya existe Payment con idempotencyKey === renewalKey → devolver 200, no procesar
+```
+
+**Edge cases completos:**
+| Caso | Handling |
+|---|---|
+| Webhook de renovación duplicado | Idempotencia doble capa — devolver 200 |
+| Usuario cancela durante trial | `cancelAtPeriodEnd: true` — no cobrar al vencer |
+| Proveedor devuelve `pending` en renovación | No marcar PAST_DUE, esperar webhook de confirmación |
+| Usuario reactiva suscripción CANCELED | No soportado en este template — crear suscripción nueva |
+| Usuario elimina cuenta con suscripción activa | Cancelar en proveedor ANTES de anonimizar datos |
+| Downgrade a plan más barato sin cobro hoy | `creditBalance` aumenta; se aplica en próxima renovación |
+
+- [ ] `src/jobs/subscriptionDunning.ts` — cron diario con `SELECT FOR UPDATE SKIP LOCKED`
+- [ ] Handler Stripe: `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.deleted`
+- [ ] Handler MercadoPago: `preapproval` con `authorized_payment` y `cancelled`
+- [ ] Idempotencia de renovaciones: `providerEventId` + hash interno
+- [ ] Cancelación account: extender `DELETE /api/auth/me` para cancelar suscripción activa en proveedor
+- [ ] Frontend: banner PAST_DUE en header del dashboard (aparece si `subscription.status === 'PAST_DUE'`)
+- [ ] Frontend: flujo de cancelación en `/dashboard/subscription`:
+  - Paso 1: "¿Por qué cancelas?" (retención — opcional, registrado en audit log)
+  - Paso 2: "Tu acceso continúa hasta el [fecha]. ¿Confirmar cancelación?"
+- [ ] Outbox: email de bienvenida (subscribe), aviso de dunning (días 3 y 7), cancelación
+- [ ] Tests:
+  - Grace period de 14 días → CANCELED
+  - 2 fallos + cobro exitoso → ACTIVE, reset dunning fields
+  - Webhook duplicado → procesado exactamente 1 vez
+  - Cancelación durante trial → no cobrar, CANCELED al vencer trial
+  - Proveedor `pending` en renovación → status no cambia
 
 ---
 
@@ -1567,10 +1852,14 @@ ENCRYPTION_KEY=""            # openssl rand -base64 32
 | 2026-04-27 | Días 14–15 | Fase 3 completada: migración aplicada, schemas Zod, accountService + transactionService, rutas /accounts y /transactions, spec OpenAPI 3.0 completa en /docs | double-entry ledger, state machine ACTIVE↔FROZEN→CLOSED, idempotencia P2002 race-safe, SELECT FOR UPDATE anti-deadlock, close endpoint con guard balance=0 |
 | 2026-04-30 | CI | CI GitHub Actions: type-check en 2 jobs (payment-providers full + api solo schemas sin Prisma). Adapters Stripe v22 + MercadoPago v2 corregidos. Análisis de deuda técnica Fase 2/3 documentado. | Prisma 6 requiere >7 GB RAM para tsc completo — VS Code valida servicios/rutas en local, CI valida el resto |
 | 2026-04-30 | Diseño Fase 4 | Plan de Fase 4 completo y cerrado tras 3 rondas de revisión. Decisiones clave: shared-types como DTOs planos, api.ts factory, [locale] en Día 16, NextAuth callbacks + module augmentation, rate limit con Redis, polling con setTimeout recursivo + AbortController por request, mappers centralizados para serialización | i18n debe ir antes de crear rutas de auth — moverlo después rompe todos los paths |
+| 2026-05-01 | Días 16–20 | Fase 4 completada: shell Next.js + shadcn/ui, login/register/forgot-password/reset-password, i18n en/es, checkout flow (success/failed/pending), emails transaccionales (Resend), webhooks reales conectados a processPaymentUpdate | P2-1 y P2-2 (email) resueltos. Rate limit en login. PasswordResetToken migration aplicada. |
+| 2026-05-14 | Diseño Fase 5 | Plan de Fase 5 diseñado, revisado con ChatGPT y cerrado. 5 decisiones de arquitectura documentadas. Schema changes definidos: subscriptionId en Payment, unitPrice+currency snapshot en Subscription, firstPaymentFailureAt+nextDunningAttemptAt en lugar de failedPaymentCount, nuevo SubscriptionAuditLog | Decisión clave: no existe cancel_immediately (solo EOP). No existe INCOMPLETE (PAST_DUE cubre trial fallido). Prorrateo en días UTC server-side — nunca delegar al proveedor. |
+| 2026-05-14 | Pre-Fase 5 | Typed errors (P3-3): 5 clases de error en accountService + transactionService + routes/transactions actualizadas con instanceof. Migración phase5_subscriptions aplicada manualmente (prisma migrate deploy) con backfill de unitPrice+currency. Seed actualizado. | prisma migrate dev no funciona en entornos no-interactivos — usar migrate deploy para CI/producción |
+| 2026-05-15 | Días 21–23 | Fase 5 completa: plans CRUD + subscriptionService state machine + TRIALING→ACTIVE→PAST_DUE→CANCELED + cancelAtPeriodEnd + cron trial check + changePlan con prorrateo (creditBalance acumulado en downgrade) + endpoint preview + modal frontend + dunning cron (SELECT FOR UPDATE SKIP LOCKED, schedule días 1/3/7/14) + subscriptionWebhookProcessor (idempotencia doble capa) + emails dunning + banner PAST_DUE en Header + /pricing + /dashboard/subscription | Probado: GET /plan-change-preview devuelve proration correcta (14/14 días, credit 2900, charge 900, net 0). POST /change-plan actualiza planId + unitPrice + creditBalance=2000 atómicamente. |
 
 ---
 
-*Roadmap actualizado: 2026-04-30*
+*Roadmap actualizado: 2026-05-15*
 *Objetivo: Template full-stack de pagos vendible en $149–199*
 *Stack: TypeScript + Next.js 14 + Hono + Prisma + PostgreSQL + Turborepo*
 *APIs de pago: MercadoPago + Stripe (intercambiables, el template nunca toca datos de tarjetas)*

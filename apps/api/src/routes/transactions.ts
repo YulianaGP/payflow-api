@@ -9,6 +9,16 @@ import {
   getTransaction,
   listTransactions,
 } from "../services/transactionService.js"
+import {
+  AccountNotFoundError,
+  AccountFrozenError,
+  AccountClosedError,
+  InsufficientBalanceError,
+  CurrencyMismatchError,
+  TransactionNotFoundError,
+  AlreadyReversedError,
+  InvalidStatusTransitionError,
+} from "../services/accountService.js"
 
 export const transactionsRouter = new Hono()
 
@@ -23,12 +33,12 @@ transactionsRouter.post("/", zValidator("json", CreateTransactionSchema), async 
     const { transaction, replayed } = await createTransaction(input, { merchantId, userId })
     if (replayed) c.header("X-Idempotent-Replayed", "true")
     return c.json(transaction, replayed ? 200 : 201)
-  } catch (err: any) {
-    if (err.name === "AccountNotFoundError") return c.json({ error: err.message }, 404)
-    if (err.name === "AccountFrozenError")   return c.json({ error: err.message, code: "ACCOUNT_FROZEN" }, 403)
-    if (err.name === "AccountClosedError")   return c.json({ error: err.message, code: "ACCOUNT_CLOSED" }, 403)
-    if (err.message?.includes("Currency mismatch"))    return c.json({ error: err.message, code: "CURRENCY_MISMATCH" }, 422)
-    if (err.message?.includes("Insufficient balance")) return c.json({ error: err.message, code: "INSUFFICIENT_BALANCE" }, 422)
+  } catch (err) {
+    if (err instanceof AccountNotFoundError)    return c.json({ error: err.message }, 404)
+    if (err instanceof AccountFrozenError)      return c.json({ error: err.message, code: "ACCOUNT_FROZEN" }, 403)
+    if (err instanceof AccountClosedError)      return c.json({ error: err.message, code: "ACCOUNT_CLOSED" }, 403)
+    if (err instanceof CurrencyMismatchError)   return c.json({ error: err.message, code: err.code }, 422)
+    if (err instanceof InsufficientBalanceError) return c.json({ error: err.message, code: err.code }, 422)
     throw err
   }
 })
@@ -58,8 +68,8 @@ transactionsRouter.get("/:id", async (c) => {
   try {
     const tx = await getTransaction(id, merchantId)
     return c.json(tx)
-  } catch (err: any) {
-    if (err.message?.includes("not found")) return c.json({ error: err.message }, 404)
+  } catch (err) {
+    if (err instanceof TransactionNotFoundError) return c.json({ error: err.message }, 404)
     throw err
   }
 })
@@ -72,11 +82,11 @@ transactionsRouter.post("/:id/reverse", async (c) => {
   try {
     const { transaction } = await reverseTransaction(id, { merchantId, userId })
     return c.json(transaction, 201)
-  } catch (err: any) {
-    if (err.message?.includes("not found"))                      return c.json({ error: err.message }, 404)
-    if (err.message?.includes("already been reversed"))          return c.json({ error: err.message, code: "ALREADY_REVERSED" }, 409)
-    if (err.message?.includes("Only COMPLETED"))                 return c.json({ error: err.message, code: "INVALID_STATE_TRANSITION" }, 409)
-    if (err.message?.includes("Insufficient balance"))           return c.json({ error: err.message, code: "REVERSAL_INSUFFICIENT_FUNDS" }, 422)
+  } catch (err) {
+    if (err instanceof TransactionNotFoundError)     return c.json({ error: err.message }, 404)
+    if (err instanceof AlreadyReversedError)         return c.json({ error: err.message, code: err.code }, 409)
+    if (err instanceof InvalidStatusTransitionError) return c.json({ error: err.message, code: err.code }, 409)
+    if (err instanceof InsufficientBalanceError)     return c.json({ error: err.message, code: "REVERSAL_INSUFFICIENT_FUNDS" }, 422)
     throw err
   }
 })

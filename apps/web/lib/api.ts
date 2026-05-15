@@ -6,6 +6,9 @@ import type {
   TransactionDTO,
   TransactionListResult,
   AuthResult,
+  PlanDTO,
+  SubscriptionDTO,
+  PlanChangePreviewDTO,
 } from "@payflow/shared-types"
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
@@ -58,12 +61,18 @@ export function createApiClient(token?: string) {
     auth: {
       login: (body: { email: string; password: string }) =>
         request<AuthResult>("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
+      register: (body: { name: string; email: string; password: string; merchantId: string; consentAccepted: true }) =>
+        request<AuthResult>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
+      forgotPassword: (body: { email: string }) =>
+        request<{ message: string }>("/api/auth/forgot-password", { method: "POST", body: JSON.stringify(body) }),
+      resetPassword: (body: { token: string; password: string }) =>
+        request<{ message: string }>("/api/auth/reset-password", { method: "POST", body: JSON.stringify(body) }),
     },
 
     payments: {
       get: (id: string, init?: Pick<RequestInit, "signal">) =>
         request<PaymentDTO>(`/api/payments/${id}`, init),
-      list: (params?: { status?: string; limit?: number }) => {
+      list: (params?: { status?: string; limit?: number; orderId?: string }) => {
         const qs = new URLSearchParams(params as Record<string, string>).toString()
         return request<PaymentDTO[]>(`/api/payments${qs ? `?${qs}` : ""}`)
       },
@@ -86,6 +95,27 @@ export function createApiClient(token?: string) {
       },
       get: (id: string, init?: Pick<RequestInit, "signal">) =>
         request<TransactionDTO>(`/api/transactions/${id}`, init),
+    },
+
+    plans: {
+      list: (onlyActive = true) =>
+        request<PlanDTO[]>(`/api/plans${onlyActive ? "" : "?all=true"}`),
+      get: (id: string) => request<PlanDTO>(`/api/plans/${id}`),
+      create: (body: Record<string, unknown>) =>
+        request<PlanDTO>("/api/plans", { method: "POST", body: JSON.stringify(body) }),
+    },
+
+    subscriptions: {
+      list: () => request<SubscriptionDTO[]>("/api/subscriptions"),
+      get: (id: string) => request<SubscriptionDTO>(`/api/subscriptions/${id}`),
+      create: (planId: string) =>
+        request<SubscriptionDTO>("/api/subscriptions", { method: "POST", body: JSON.stringify({ planId }) }),
+      cancel: (id: string) =>
+        request<SubscriptionDTO>(`/api/subscriptions/${id}/cancel`, { method: "POST" }),
+      previewPlanChange: (id: string, newPlanId: string) =>
+        request<PlanChangePreviewDTO>(`/api/subscriptions/${id}/plan-change-preview?newPlanId=${newPlanId}`),
+      changePlan: (id: string, newPlanId: string) =>
+        request<SubscriptionDTO>(`/api/subscriptions/${id}/change-plan`, { method: "POST", body: JSON.stringify({ newPlanId }) }),
     },
   }
 }

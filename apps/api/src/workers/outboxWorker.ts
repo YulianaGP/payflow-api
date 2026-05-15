@@ -1,4 +1,14 @@
 import { db } from "../lib/db.js"
+import { sendEmail } from "../lib/email.js"
+import {
+  paymentSuccessHtml,
+  paymentFailedHtml,
+  passwordResetHtml,
+  subscriptionDunningWarningHtml,
+  subscriptionDunningUrgentHtml,
+  subscriptionCanceledDunningHtml,
+  subscriptionPaymentRecoveredHtml,
+} from "../lib/emailTemplates.js"
 
 const POLL_INTERVAL_MS = 5_000
 const BATCH_SIZE = 100
@@ -79,19 +89,159 @@ async function processBatch(): Promise<void> {
 // Dispatch by category — easy to extend without touching the worker loop
 async function dispatch(event: { type: string; category: string; payload: unknown }): Promise<void> {
   if (event.category === "payment") {
-    // TODO Day 12: enqueue to BullMQ webhook delivery queue
-    // TODO Day 20: enqueue email via Resend
-    // For now: log only — real delivery added when BullMQ + Resend are wired up
+    const payload = event.payload as {
+      paymentId: string
+      status: string
+      amount: number
+      currency: string
+      orderId?: string
+    }
+
+    const terminal = payload.status === "SUCCESS" || payload.status === "FAILED"
+    if (!terminal) return
+
+    // Fetch customerEmail from payment metadata
+    const payment = await db.payment.findUnique({
+      where: { id: payload.paymentId },
+      select: { metadata: true, orderId: true, createdAt: true },
+    })
+    const meta = payment?.metadata as { customerEmail?: string; description?: string } | null
+    const to = meta?.customerEmail
+    if (!to) return
+
+    const APP_URL = process.env["NEXTAUTH_URL"] ?? "http://localhost:3000"
+
+    if (payload.status === "SUCCESS") {
+      await sendEmail({
+        to,
+        subject: "Payment confirmed — PayFlow",
+        html: paymentSuccessHtml({
+          paymentId: payload.paymentId,
+          amount: payload.amount,
+          currency: payload.currency,
+          orderId: payment?.orderId ?? "",
+          createdAt: payment?.createdAt ?? new Date(),
+          ...(meta?.description !== undefined ? { description: meta.description } : {}),
+          receiptUrl: `${APP_URL}/api/payments/${payload.paymentId}/receipt`,
+        }),
+      })
+    } else {
+      await sendEmail({
+        to,
+        subject: "Your payment could not be processed — PayFlow",
+        html: paymentFailedHtml({
+          paymentId: payload.paymentId,
+          amount: payload.amount,
+          currency: payload.currency,
+          orderId: payment?.orderId ?? "",
+          createdAt: payment?.createdAt ?? new Date(),
+          retryUrl: `${APP_URL}/checkout`,
+        }),
+      })
+    }
+    return
+  }
+
+  if (event.category === "subscription") {
+    // Subscription state change events — logged here; webhook fanout added in Day 24
+    const payload = event.payload as { subscriptionId: string; merchantId: string }
+    process.stdout.write(
+      `[outbox] subscription event ${event.type} subscriptionId=${payload.subscriptionId}\n`
+    )
+    return
+  }
+
+  if (event.category === "subscription_email") {
+    const payload = event.payload as {
+      subscriptionId: string
+      merchantId: string
+      userId: string
+      daysSinceFailure?: number
+      gracePeriodEndsAt?: string | null
+    }
+
+    // Resolve user email and subscription details
+    const user = await db.user.findUnique({
+      where: { id: payload.userId },
+      select: { email: true },
+    })
+    const subscription = await db.subscription.findUnique({
+      where: { id: payload.subscriptionId },
+      include: { plan: { select: { name: true } } },
+    })
+    if (!user?.email || !subscription) return
+
+    const APP_URL = process.env["NEXTAUTH_URL"] ?? "http://localhost:3000"
+    const updatePaymentUrl = `${APP_URL}/dashboard/subscription`
+    const planName = subscription.plan.name
+
+    if (event.type === "subscription.dunning_warning") {
+      const endsAt = payload.gracePeriodEndsAt
+        ? new Date(payload.gracePeriodEndsAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+        : "soon"
+      await sendEmail({
+        to: user.email,
+        subject: `Action required: update your payment method — ${planName}`,
+        html: subscriptionDunningWarningHtml({ planName, gracePeriodEndsAt: endsAt, updatePaymentUrl }),
+      })
+      return
+    }
+
+    if (event.type === "subscription.dunning_urgent") {
+      const endsAt = payload.gracePeriodEndsAt
+        ? new Date(payload.gracePeriodEndsAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+        : "soon"
+      await sendEmail({
+        to: user.email,
+        subject: `Urgent: your ${planName} access expires soon`,
+        html: subscriptionDunningUrgentHtml({ planName, gracePeriodEndsAt: endsAt, updatePaymentUrl }),
+      })
+      return
+    }
+
+    if (event.type === "subscription.dunning_canceled") {
+      await sendEmail({
+        to: user.email,
+        subject: `Your ${planName} subscription has been canceled`,
+        html: subscriptionCanceledDunningHtml({ planName }),
+      })
+      return
+    }
+
+    if (event.type === "subscription.payment_recovered") {
+      const nextBilling = subscription.currentPeriodEnd.toLocaleDateString("en-US", {
+        year: "numeric", month: "long", day: "numeric",
+      })
+      await sendEmail({
+        to: user.email,
+        subject: `Payment recovered — ${planName} subscription active`,
+        html: subscriptionPaymentRecoveredHtml({ planName, nextBillingDate: nextBilling }),
+      })
+      return
+    }
+
     return
   }
 
   if (event.category === "webhook") {
-    // External HTTP delivery to merchant webhook URL — implemented in Day 12
+    // External HTTP delivery to merchant webhook URL — Day 12 (BullMQ)
     return
   }
 
   if (event.category === "email") {
-    // Email delivery via Resend — implemented in Day 20
+    const payload = event.payload as { email: string; resetToken?: string; expiresAt?: string }
+
+    if (event.type === "auth.password_reset" && payload.resetToken) {
+      const APP_URL = process.env["NEXTAUTH_URL"] ?? "http://localhost:3000"
+      await sendEmail({
+        to: payload.email,
+        subject: "Reset your PayFlow password",
+        html: passwordResetHtml({
+          resetUrl: `${APP_URL}/reset-password?token=${payload.resetToken}`,
+          expiresAt: payload.expiresAt ?? "",
+        }),
+      })
+    }
     return
   }
 }
