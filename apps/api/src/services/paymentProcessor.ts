@@ -1,6 +1,7 @@
 import type { WebhookEvent } from "@payflow/payment-providers"
 import { isValidTransition } from "@payflow/payment-providers"
 import { db } from "../lib/db.js"
+import { paymentEventBus } from "../lib/paymentEvents.js"
 
 type StatusSource = "webhook" | "reconciliation" | "manual" | "system"
 
@@ -25,7 +26,7 @@ export async function processPaymentUpdate(
   event: WebhookEvent,
   source: StatusSource = "webhook"
 ): Promise<ProcessResult> {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     // ── Step 1: Idempotency ───────────────────────────────────────────────
     // If we already processed this exact event, return 200 without doing anything.
     // CRITICAL: never throw here — the provider would retry forever on 4xx/5xx.
@@ -127,6 +128,24 @@ export async function processPaymentUpdate(
       },
     })
 
-    return { processed: true }
+    return { processed: true, _notify: { id: payment.id, merchantId: payment.merchantId, orderId: payment.id, status: newStatus, amount: payment.amount, currency: payment.currency, provider: event.provider } }
   })
+
+  // Emit AFTER the transaction commits — SSE clients get the update in < 1s
+  if (result.processed && result._notify) {
+    const n = result._notify
+    paymentEventBus.emit("payment_updated", {
+      type: "payment_updated",
+      paymentId: n.id,
+      merchantId: n.merchantId,
+      orderId: n.orderId,
+      status: n.status,
+      amount: n.amount,
+      currency: n.currency,
+      provider: n.provider,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  return { processed: result.processed, reason: (result as any).reason }
 }

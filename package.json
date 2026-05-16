@@ -1,6 +1,7 @@
 {
   "name": "payflow",
   "private": true,
+  "packageManager": "npm@11.6.4",
   "workspaces": [
     "apps/*",
     "packages/*"

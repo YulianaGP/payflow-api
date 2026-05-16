@@ -126,15 +126,15 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 ### Fase 6 — Dashboard y features avanzados (Días 24–32) ⏳
 | Tarea | Estado |
 |---|---|
-| Dashboard admin + SSE real-time | ⏳ |
-| Filtros, exportación CSV y audit log | ⏳ |
-| Chargebacks y disputas | ⏳ |
-| Antifraude avanzado (PaymentAttempt) | ⏳ |
-| Logging estructurado + CORS + headers de seguridad | ⏳ |
-| Compliance LATAM (consentimiento + derecho al olvido) | ⏳ |
-| Pagos en efectivo (OXXO + Rapipago/Pago Fácil) | ⏳ |
-| Invoice por link + múltiples items | ⏳ |
-| Página de estado pública (/status) | ⏳ |
+| Day 24: `AppError` base + SSE endpoint `/api/payments/stream` + proxy Next.js + `PaymentStream` component | ✅ |
+| Day 25: Filtros, exportación CSV y audit log | ⏳ |
+| Day 26: Chargebacks y disputas | ⏳ |
+| Day 27: Antifraude avanzado (PaymentAttempt) | ⏳ |
+| Day 28: Logging estructurado + CORS + headers de seguridad | ⏳ |
+| Day 29: Compliance LATAM (consentimiento + derecho al olvido) | ⏳ |
+| Day 30: Pagos en efectivo (OXXO + Rapipago/Pago Fácil) | ⏳ |
+| Day 31: Invoice por link + múltiples items | ⏳ |
+| Day 32: Página de estado pública (/status) | ⏳ |
 
 ### Fase 7 — Producción y lanzamiento (Días 33–39) ⏳
 | Tarea | Estado |
@@ -151,14 +151,21 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 ## SESIÓN ACTUAL
 
-**Fecha:** 2026-05-15
-**Día:** Fase 5 completada — comenzando Fase 6
-**Tarea activa:** —
+**Fecha:** 2026-05-16
+**Día:** Day 24 completado — comenzando Day 25
+**Tarea activa:** Day 25 — Filtros, métricas reales, CSV export, refund manual
 **Bloqueantes:** —
-**Siguiente:** Day 24 — Dashboard admin + SSE real-time
+**Siguiente:** Day 25 — Dashboard con datos reales + filtros + export CSV
 
 **Pendiente de prueba manual:**
 - `npm run db:studio` en `apps/api` → editar suscripción a `PAST_DUE` con `nextDunningAttemptAt = now - 1h` → verificar que el dunning job la procesa en el próximo tick (máx 1h)
+
+**Decisiones tomadas en Day 24:**
+- SSE usa EventEmitter en proceso (no Redis/BullMQ) — correcto para template single-server
+- Proxy SSE en Next.js Route Handler (`/app/api/payments/stream`) — mismo origen, sin CORS
+- `authOptions` extraído a `apps/web/lib/authOptions.ts` para reutilizar en proxy y NextAuth
+- Inicial `event: connected` fuerza flush de headers en el proxy de Next.js
+- `AppError` base en `apps/api/src/lib/errors.ts` — usado en todos los días siguientes
 
 ---
 

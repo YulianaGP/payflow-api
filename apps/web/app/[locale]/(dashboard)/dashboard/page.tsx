@@ -1,14 +1,21 @@
+import { getTranslations } from "next-intl/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PaymentStream } from "@/components/PaymentStream"
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const t = await getTranslations("dashboard")
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
+        <PaymentStream />
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Payments today
+              {t("paymentsToday")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -18,7 +25,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Success rate
+              {t("successRate")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -28,7 +35,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending payments
+              {t("pendingPayments")}
             </CardTitle>
           </CardHeader>
           <CardContent>
