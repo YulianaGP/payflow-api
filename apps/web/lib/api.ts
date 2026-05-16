@@ -72,12 +72,20 @@ export function createApiClient(token?: string) {
     payments: {
       get: (id: string, init?: Pick<RequestInit, "signal">) =>
         request<PaymentDTO>(`/api/payments/${id}`, init),
-      list: (params?: { status?: string; limit?: number; orderId?: string }) => {
-        const qs = new URLSearchParams(params as Record<string, string>).toString()
+      list: (params?: { status?: string; provider?: string; dateFrom?: string; dateTo?: string; search?: string; limit?: number }) => {
+        const qs = new URLSearchParams(
+          Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v != null)) as Record<string, string>
+        ).toString()
         return request<PaymentDTO[]>(`/api/payments${qs ? `?${qs}` : ""}`)
       },
       create: (body: Record<string, unknown>) =>
         request<CreatePaymentResult>("/api/payments", { method: "POST", body: JSON.stringify(body) }),
+      metrics: () =>
+        request<{ todayRevenue: number; todayCount: number; successRate: number; pendingCount: number }>("/api/payments/metrics"),
+      audit: (id: string) =>
+        request<Array<{ id: string; fromStatus: string; toStatus: string; changedBy: string; metadata: unknown; createdAt: string }>>(`/api/payments/${id}/audit`),
+      refund: (id: string, reason: string) =>
+        request<{ refunded: boolean }>(`/api/payments/${id}/refund`, { method: "POST", body: JSON.stringify({ reason }) }),
     },
 
     accounts: {

@@ -2,12 +2,16 @@ import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
 import { nanoid } from "nanoid"
+import { randomBytes } from "node:crypto"
 import { db } from "../lib/db.js"
 import { sha256 } from "../lib/crypto.js"
 import { signJwt } from "../lib/jwt.js"
 import { authMiddleware } from "../middlewares/auth.js"
+import { createRateLimiter } from "../lib/rateLimiter.js"
 
 export const authRouter = new Hono()
+
+const JWT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -23,6 +27,17 @@ const loginSchema = z.object({
   email: z.string().email(),
   password: z.string(),
 })
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+})
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+})
+
+const loginRateLimiter = createRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 })
 
 authRouter.post("/register", zValidator("json", registerSchema), async (c) => {
   const { email, password, name, merchantId, consentAccepted: _ } = c.req.valid("json")
@@ -47,17 +62,16 @@ authRouter.post("/register", zValidator("json", registerSchema), async (c) => {
   })
 
   const jti = nanoid()
-  const token = await signJwt({
-    sub: user.id,
-    merchantId: merchantId,
-    role: user.role,
-    jti,
-  })
+  const token = await signJwt({ sub: user.id, merchantId, role: user.role, jti })
+  const expiresAt = new Date(Date.now() + JWT_EXPIRY_MS).toISOString()
 
-  return c.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } }, 201)
+  return c.json(
+    { token, expiresAt, user: { id: user.id, email: user.email, name: user.name, role: user.role, merchantId } },
+    201
+  )
 })
 
-authRouter.post("/login", zValidator("json", loginSchema), async (c) => {
+authRouter.post("/login", loginRateLimiter, zValidator("json", loginSchema), async (c) => {
   const { email, password } = c.req.valid("json")
 
   const user = await db.user.findUnique({
@@ -70,14 +84,15 @@ authRouter.post("/login", zValidator("json", loginSchema), async (c) => {
   }
 
   const jti = nanoid()
-  const token = await signJwt({
-    sub: user.id,
-    merchantId: user.merchantId ?? "",
-    role: user.role,
-    jti,
-  })
+  const merchantId = user.merchantId ?? ""
+  const token = await signJwt({ sub: user.id, merchantId, role: user.role, jti })
+  const expiresAt = new Date(Date.now() + JWT_EXPIRY_MS).toISOString()
 
-  return c.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } })
+  return c.json({
+    token,
+    expiresAt,
+    user: { id: user.id, email: user.email, name: user.name, role: user.role, merchantId },
+  })
 })
 
 authRouter.post("/logout", authMiddleware, async (c) => {
@@ -98,6 +113,67 @@ authRouter.post("/logout", authMiddleware, async (c) => {
   }
 
   return c.json({ message: "Logged out" })
+})
+
+authRouter.post("/forgot-password", zValidator("json", forgotPasswordSchema), async (c) => {
+  const { email } = c.req.valid("json")
+
+  const user = await db.user.findUnique({
+    where: { email },
+    select: { id: true, deletedAt: true },
+  })
+
+  // Always return 200 — prevents email enumeration attacks
+  if (!user || user.deletedAt) {
+    return c.json({ message: "If your email is registered, you will receive a reset link shortly" })
+  }
+
+  const resetToken = randomBytes(32).toString("hex")
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+
+  await db.$transaction(async (tx) => {
+    await tx.passwordResetToken.create({
+      data: { userId: user.id, token: resetToken, expiresAt },
+    })
+    // Outbox: email worker (P2-2) will pick this up and send the reset email
+    await tx.outboxEvent.create({
+      data: {
+        type: "auth.password_reset",
+        category: "email",
+        payload: { userId: user.id, email, resetToken, expiresAt: expiresAt.toISOString() },
+      },
+    })
+  })
+
+  return c.json({ message: "If your email is registered, you will receive a reset link shortly" })
+})
+
+authRouter.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) => {
+  const { token, password } = c.req.valid("json")
+
+  const resetRecord = await db.passwordResetToken.findUnique({
+    where: { token },
+    include: { user: { select: { id: true, deletedAt: true } } },
+  })
+
+  if (!resetRecord || resetRecord.usedAt || resetRecord.expiresAt < new Date() || resetRecord.user.deletedAt) {
+    return c.json({ error: "Invalid or expired reset token" }, 400)
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: resetRecord.userId },
+      data: { passwordHash: sha256(password) },
+    })
+    await tx.passwordResetToken.update({
+      where: { id: resetRecord.id },
+      data: { usedAt: new Date() },
+    })
+    // Note: existing JWT sessions remain valid for their 7-day window after password reset.
+    // Full session invalidation requires a passwordVersion counter in the JWT payload (Phase 7).
+  })
+
+  return c.json({ message: "Password updated successfully" })
 })
 
 // DELETE /me — GDPR right to erasure

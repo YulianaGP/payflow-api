@@ -38,8 +38,11 @@ export class MockPaymentService implements PaymentService {
 
     store.set(externalRef, { status, amount: input.amount, currency: input.currency })
 
-    // Simulate the redirect URL — in real providers this is their hosted checkout page
-    const redirectUrl = `http://localhost:3000/mock-checkout/${externalRef}`
+    const params = new URLSearchParams({
+      successUrl: input.successUrl,
+      failureUrl: input.failureUrl,
+    })
+    const redirectUrl = `http://localhost:3000/mock-checkout/${externalRef}?${params.toString()}`
     return { redirectUrl, externalRef }
   }
 

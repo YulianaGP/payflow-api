@@ -127,7 +127,7 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 | Tarea | Estado |
 |---|---|
 | Day 24: `AppError` base + SSE endpoint `/api/payments/stream` + proxy Next.js + `PaymentStream` component | ✅ |
-| Day 25: Filtros, exportación CSV y audit log | ⏳ |
+| Day 25: Filtros, exportación CSV y audit log | ✅ |
 | Day 26: Chargebacks y disputas | ⏳ |
 | Day 27: Antifraude avanzado (PaymentAttempt) | ⏳ |
 | Day 28: Logging estructurado + CORS + headers de seguridad | ⏳ |
@@ -152,10 +152,10 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 ## SESIÓN ACTUAL
 
 **Fecha:** 2026-05-16
-**Día:** Day 24 completado — comenzando Day 25
-**Tarea activa:** Day 25 — Filtros, métricas reales, CSV export, refund manual
+**Día:** Day 25 completado — comenzando Day 26
+**Tarea activa:** Day 26 — Chargebacks y disputas
 **Bloqueantes:** —
-**Siguiente:** Day 25 — Dashboard con datos reales + filtros + export CSV
+**Siguiente:** Day 26 — Modelo Dispute, webhook handlers MP+Stripe, email a admin
 
 **Pendiente de prueba manual:**
 - `npm run db:studio` en `apps/api` → editar suscripción a `PAST_DUE` con `nextDunningAttemptAt = now - 1h` → verificar que el dunning job la procesa en el próximo tick (máx 1h)
@@ -166,6 +166,14 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 - `authOptions` extraído a `apps/web/lib/authOptions.ts` para reutilizar en proxy y NextAuth
 - Inicial `event: connected` fuerza flush de headers en el proxy de Next.js
 - `AppError` base en `apps/api/src/lib/errors.ts` — usado en todos los días siguientes
+
+**Decisiones tomadas en Day 25:**
+- Métricas dashboard usan `db.payment.groupBy` (sin raw SQL) — más mantenible, sin inyección
+- CSV export usa RFC 4180 escaping — handle commas, quotes, newlines dentro de values
+- Refund endpoint verifica `refundWindowDays` del merchant (default 180 días) antes de procesar
+- `paymentEventBus.emit` se llama DESPUÉS de `await db.$transaction()` — no dentro del return
+- Payments page en `/[locale]/(dashboard)/payments/` — coincide con el nav item del Sidebar
+- CSV export link apunta directamente al API (`NEXT_PUBLIC_API_URL/api/payments/export`) con token embebido en URL (patrón válido para descargas one-shot)
 
 ---
 

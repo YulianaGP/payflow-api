@@ -2,30 +2,41 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useLocale, useTranslations } from "next-intl"
 import { useState } from "react"
 import { LayoutDashboard, CreditCard, Wallet, ArrowLeftRight, Settings, ChevronLeft, ChevronRight, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-const NAV_ITEMS = [
-  { href: "/dashboard",     icon: LayoutDashboard,  label: "Dashboard" },
-  { href: "/payments",      icon: CreditCard,        label: "Payments" },
-  { href: "/accounts",      icon: Wallet,            label: "Accounts" },
-  { href: "/transactions",  icon: ArrowLeftRight,    label: "Transactions" },
-  { href: "/settings",      icon: Settings,          label: "Settings" },
-]
+function useNavItems() {
+  const t = useTranslations("dashboard")
+  return [
+    { href: "/dashboard",    icon: LayoutDashboard, label: t("title") },
+    { href: "/payments",     icon: CreditCard,       label: t("payments") },
+    { href: "/accounts",     icon: Wallet,           label: t("accounts") },
+    { href: "/transactions", icon: ArrowLeftRight,   label: t("transactions") },
+    { href: "/settings",     icon: Settings,         label: t("settings") },
+  ]
+}
 
 function NavItems({ collapsed }: { collapsed: boolean }) {
   const pathname = usePathname()
+  const locale = useLocale()
+  const navItems = useNavItems()
+
+  const localePrefix = locale === "en" ? "" : `/${locale}`
+  // Strip the locale prefix so active checks work the same for both locales
+  const strippedPathname = locale === "en" ? pathname : pathname.slice(localePrefix.length) || "/"
+
   return (
     <nav className="flex flex-col gap-1 px-2">
-      {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-        const active = pathname.startsWith(href)
+      {navItems.map(({ href, icon: Icon, label }) => {
+        const active = strippedPathname === href || strippedPathname.startsWith(href + "/")
         return (
           <Link
             key={href}
-            href={href}
+            href={`${localePrefix}${href}`}
             className={cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
               active

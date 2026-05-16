@@ -1,9 +1,28 @@
 import { getTranslations } from "next-intl/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/authOptions"
+import { createApiClient } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PaymentStream } from "@/components/PaymentStream"
 
 export default async function DashboardPage() {
-  const t = await getTranslations("dashboard")
+  const [t, session] = await Promise.all([
+    getTranslations("dashboard"),
+    getServerSession(authOptions),
+  ])
+
+  let metrics = { todayRevenue: 0, todayCount: 0, successRate: 0, pendingCount: 0 }
+
+  if (session?.token) {
+    try {
+      const api = createApiClient(session.token)
+      metrics = await api.payments.metrics()
+    } catch {
+      // silently fall back to zeros — dashboard still renders
+    }
+  }
+
+  const todayRevenue = `$${(metrics.todayRevenue / 100).toFixed(2)}`
 
   return (
     <div className="space-y-6">
@@ -19,7 +38,8 @@ export default async function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">—</p>
+            <p className="text-2xl font-bold">{metrics.todayCount}</p>
+            <p className="text-sm text-muted-foreground">{todayRevenue} revenue</p>
           </CardContent>
         </Card>
         <Card>
@@ -29,7 +49,8 @@ export default async function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">—</p>
+            <p className="text-2xl font-bold">{metrics.successRate}%</p>
+            <p className="text-sm text-muted-foreground">last 30 days</p>
           </CardContent>
         </Card>
         <Card>
@@ -39,7 +60,8 @@ export default async function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">—</p>
+            <p className="text-2xl font-bold">{metrics.pendingCount}</p>
+            <p className="text-sm text-muted-foreground">PENDING + PROCESSING</p>
           </CardContent>
         </Card>
       </div>

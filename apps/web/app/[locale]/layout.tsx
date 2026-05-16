@@ -1,6 +1,7 @@
 import { NextIntlClientProvider } from "next-intl"
 import { getMessages } from "next-intl/server"
 import { ThemeProvider } from "@/components/layout/ThemeProvider"
+import { SessionProvider } from "@/components/layout/SessionProvider"
 import { Toaster } from "@/components/ui/sonner"
 
 export default async function LocaleLayout({
@@ -21,8 +22,10 @@ export default async function LocaleLayout({
         enableSystem
         disableTransitionOnChange
       >
-        {children}
-        <Toaster />
+        <SessionProvider>
+          {children}
+          <Toaster />
+        </SessionProvider>
       </ThemeProvider>
     </NextIntlClientProvider>
   )
