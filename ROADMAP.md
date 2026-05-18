@@ -128,13 +128,13 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 |---|---|
 | Day 24: `AppError` base + SSE endpoint `/api/payments/stream` + proxy Next.js + `PaymentStream` component | ✅ |
 | Day 25: Filtros, exportación CSV y audit log | ✅ |
-| Day 26: Chargebacks y disputas | ⏳ |
-| Day 27: Antifraude avanzado (PaymentAttempt) | ⏳ |
-| Day 28: Logging estructurado + CORS + headers de seguridad | ⏳ |
-| Day 29: Compliance LATAM (consentimiento + derecho al olvido) | ⏳ |
-| Day 30: Pagos en efectivo (OXXO + Rapipago/Pago Fácil) | ⏳ |
-| Day 31: Invoice por link + múltiples items | ⏳ |
-| Day 32: Página de estado pública (/status) | ⏳ |
+| Day 26: Chargebacks y disputas | ✅ |
+| Day 27: Antifraude avanzado (PaymentAttempt) | ✅ |
+| Day 28: Logging estructurado + CORS + headers de seguridad | ✅ |
+| Day 29: Compliance LATAM (consentimiento + derecho al olvido) | ✅ |
+| Day 30: Pagos en efectivo (OXXO + Rapipago/Pago Fácil) | ✅ |
+| Day 31: Invoice por link + múltiples items | ✅ |
+| Day 32: Página de estado pública (/status) | ✅ |
 
 ### Fase 7 — Producción y lanzamiento (Días 33–39) ⏳
 | Tarea | Estado |
@@ -152,10 +152,10 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 ## SESIÓN ACTUAL
 
 **Fecha:** 2026-05-18
-**Día:** Day 25 completado — comenzando Day 26
-**Tarea activa:** Day 26 — Chargebacks y disputas
-**Bloqueantes:** Migración Phase 6 pendiente (Dispute, PaymentAttempt, Invoice, StatusCheck en schema pero sin migrate)
-**Siguiente:** Days 26–32 en secuencia rápida
+**Día:** Days 26–32 completados — Fase 6 COMPLETA
+**Tarea activa:** —
+**Bloqueantes:** —
+**Siguiente:** Fase 7 — Producción y lanzamiento (Docker, CI, Railway deploy, README)
 
 **Decisiones globales Days 26–32 (acordadas con evaluación ChatGPT):**
 - Day 26: `processDisputeEvent()` separado, detecta eventos dispute antes de `processPaymentUpdate`, email admin via `ADMIN_EMAIL` env

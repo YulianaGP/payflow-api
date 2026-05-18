@@ -72,7 +72,7 @@ export function createApiClient(token?: string) {
     payments: {
       get: (id: string, init?: Pick<RequestInit, "signal">) =>
         request<PaymentDTO>(`/api/payments/${id}`, init),
-      list: (params?: { status?: string; provider?: string; dateFrom?: string; dateTo?: string; search?: string; limit?: number }) => {
+      list: (params?: { status?: string; provider?: string; dateFrom?: string; dateTo?: string; search?: string; orderId?: string; limit?: number }) => {
         const qs = new URLSearchParams(
           Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v != null)) as Record<string, string>
         ).toString()
@@ -116,6 +116,13 @@ export function createApiClient(token?: string) {
     disputes: {
       list: () => request<any[]>("/api/disputes"),
       get: (id: string) => request<any>(`/api/disputes/${id}`),
+    },
+
+    invoices: {
+      list: () => request<any[]>("/api/invoices"),
+      get: (id: string) => request<any>(`/api/invoices/${id}`),
+      create: (body: { description: string; amount: number; currency: string; expiresAt?: string; items?: any[] }) =>
+        request<any>("/api/invoices", { method: "POST", body: JSON.stringify(body) }),
     },
 
     subscriptions: {

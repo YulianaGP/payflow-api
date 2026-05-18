@@ -8,6 +8,7 @@ import type {
   SubscriptionInput,
   SubscriptionResult,
   ExternalPayment,
+  CashVoucherResult,
 } from "./types.js"
 
 // In-memory store — only for dev/test, never production
@@ -94,5 +95,18 @@ export class MockPaymentService implements PaymentService {
       }
     }
     return null
+  }
+
+  async createCashVoucher(input: CheckoutInput): Promise<CashVoucherResult> {
+    const voucherCode = `MOCK-CASH-${nanoid(10).toUpperCase()}`
+    const networkName = (input as any).cashMethod === "rapipago" ? "Rapipago" : "OXXO"
+    const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) // 3 days
+    store.set(voucherCode, { status: "PENDING", amount: input.amount, currency: input.currency })
+    return {
+      voucherCode,
+      instructions: `Go to any ${networkName} location and pay with code: ${voucherCode}. Valid until ${expiresAt.toLocaleDateString()}.`,
+      expiresAt,
+      networkName,
+    }
   }
 }

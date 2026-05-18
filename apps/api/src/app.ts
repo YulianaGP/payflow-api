@@ -12,6 +12,8 @@ import { transactionsRouter } from "./routes/transactions.js"
 import { plansRouter } from "./routes/plans.js"
 import { subscriptionsRouter } from "./routes/subscriptions.js"
 import { disputesRouter } from "./routes/disputes.js"
+import { invoicesRouter } from "./routes/invoices.js"
+import { statusRouter } from "./routes/status.js"
 import { openApiSpec } from "./lib/openapi.js"
 import { securityHeaders } from "./middlewares/security.js"
 import { logger } from "./lib/logger.js"
@@ -71,3 +73,5 @@ app.route("/api/transactions", transactionsRouter)
 app.route("/api/plans", plansRouter)
 app.route("/api/subscriptions", subscriptionsRouter)
 app.route("/api/disputes", disputesRouter)
+app.route("/api/invoices", invoicesRouter)
+app.route("/api/status", statusRouter)

@@ -413,3 +413,66 @@ paymentsRouter.post(
   }
 )
 
+// POST /api/payments/cash — create a cash voucher (OXXO / Rapipago / PagoFácil)
+// Returns voucherCode + instructions instead of a redirect URL.
+// The webhook flow is identical to regular payments — provider sends payment.approved when paid.
+paymentsRouter.post(
+  "/cash",
+  zValidator("json", CheckoutSchema),
+  async (c) => {
+    const input = c.req.valid("json")
+    const { merchantId } = c.get("auth")
+
+    if (!input.cashMethod) return c.json({ error: "cashMethod is required (oxxo | rapipago | pagofacil)" }, 400)
+
+    const ip = c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "unknown"
+    const merchant = await db.merchant.findUnique({ where: { id: merchantId } })
+    if (!merchant) return c.json({ error: "Merchant not found" }, 404)
+
+    const providerName = merchant.paymentProvider as "mercadopago" | "stripe" | "mock"
+    const fraudCtx = { merchantId, email: input.customerEmail, ip, userAgent: c.req.header("user-agent"), amount: input.amount, currency: input.currency, provider: providerName }
+
+    const fraud = await checkFraud(fraudCtx)
+    if (fraud.blocked) {
+      await recordAttempt({ ...fraudCtx, status: "blocked", blockReason: fraud.reason })
+      return c.json({ error: "Request blocked", code: "FRAUD_BLOCKED" }, 403)
+    }
+
+    const provider = resolveProvider(providerName)
+    if (!provider.createCashVoucher) {
+      return c.json({ error: "Cash payments not supported by this provider" }, 400)
+    }
+
+    const idempotencyKey = input.idempotencyKey ?? nanoid()
+    const voucher = await provider.createCashVoucher({ ...input, idempotencyKey })
+
+    const payment = await db.payment.create({
+      data: {
+        merchantId,
+        orderId: input.orderId,
+        amount: input.amount,
+        currency: input.currency,
+        provider: providerName,
+        externalId: voucher.voucherCode,
+        idempotencyKey,
+        metadata: { customerEmail: input.customerEmail, description: input.description, cashMethod: input.cashMethod, voucherExpiresAt: voucher.expiresAt.toISOString() },
+      },
+    })
+
+    await Promise.all([
+      db.paymentAuditLog.create({
+        data: { paymentId: payment.id, fromStatus: "PENDING", toStatus: "PENDING", changedBy: "system", metadata: { action: "cash_voucher_created", cashMethod: input.cashMethod } },
+      }),
+      recordAttempt({ ...fraudCtx, paymentId: payment.id, status: "success" }).catch(() => {}),
+    ])
+
+    return c.json({
+      id: payment.id,
+      voucherCode: voucher.voucherCode,
+      instructions: voucher.instructions,
+      networkName: voucher.networkName,
+      expiresAt: voucher.expiresAt.toISOString(),
+      status: payment.status,
+    }, 201)
+  }
+)

@@ -30,6 +30,7 @@ export const CheckoutSchema = z.object({
   successUrl: z.string().url(),
   failureUrl: z.string().url(),
   idempotencyKey: z.string().min(1),
+  cashMethod: z.enum(["oxxo", "rapipago", "pagofacil"]).optional(),
   items: z
     .array(
       z.object({
