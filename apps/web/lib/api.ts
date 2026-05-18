@@ -113,6 +113,11 @@ export function createApiClient(token?: string) {
         request<PlanDTO>("/api/plans", { method: "POST", body: JSON.stringify(body) }),
     },
 
+    disputes: {
+      list: () => request<any[]>("/api/disputes"),
+      get: (id: string) => request<any>(`/api/disputes/${id}`),
+    },
+
     subscriptions: {
       list: () => request<SubscriptionDTO[]>("/api/subscriptions"),
       get: (id: string) => request<SubscriptionDTO>(`/api/subscriptions/${id}`),

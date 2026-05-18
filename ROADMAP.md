@@ -151,14 +151,20 @@ Template full-stack en **TypeScript** para aceptar pagos reales desde el día 1.
 
 ## SESIÓN ACTUAL
 
-**Fecha:** 2026-05-16
+**Fecha:** 2026-05-18
 **Día:** Day 25 completado — comenzando Day 26
 **Tarea activa:** Day 26 — Chargebacks y disputas
-**Bloqueantes:** —
-**Siguiente:** Day 26 — Modelo Dispute, webhook handlers MP+Stripe, email a admin
+**Bloqueantes:** Migración Phase 6 pendiente (Dispute, PaymentAttempt, Invoice, StatusCheck en schema pero sin migrate)
+**Siguiente:** Days 26–32 en secuencia rápida
 
-**Pendiente de prueba manual:**
-- `npm run db:studio` en `apps/api` → editar suscripción a `PAST_DUE` con `nextDunningAttemptAt = now - 1h` → verificar que el dunning job la procesa en el próximo tick (máx 1h)
+**Decisiones globales Days 26–32 (acordadas con evaluación ChatGPT):**
+- Day 26: `processDisputeEvent()` separado, detecta eventos dispute antes de `processPaymentUpdate`, email admin via `ADMIN_EMAIL` env
+- Day 27: FraudService chequea ANTES del provider — bloquea con 403 FraudError si > umbral
+- Day 28: `@hono/cors` con `CORS_ORIGINS` env, Pino logger, security headers, SIGTERM graceful shutdown
+- Day 29: Soft delete + anonymize PII (email/name/passwordHash), keep payments para contabilidad
+- Day 30: Scope fijo — `voucherUrl` + instrucciones en la response, página `/payment/cash`, sin polling propio
+- Day 31: cuid como slug de invoice (`/pay/[id]`), rate limit 5req/min en endpoint público
+- Day 32: Health check on-request con cache 60s en `StatusCheck` table — sin cron extra
 
 **Decisiones tomadas en Day 24:**
 - SSE usa EventEmitter en proceso (no Redis/BullMQ) — correcto para template single-server

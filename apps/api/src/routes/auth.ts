@@ -176,7 +176,51 @@ authRouter.post("/reset-password", zValidator("json", resetPasswordSchema), asyn
   return c.json({ message: "Password updated successfully" })
 })
 
-// DELETE /me — GDPR right to erasure
+// GET /me — current user profile
+authRouter.get("/me", authMiddleware, async (c) => {
+  const { userId } = c.get("auth")
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, role: true, createdAt: true, merchantId: true },
+  })
+  if (!user) return c.json({ error: "User not found" }, 404)
+  return c.json(user)
+})
+
+// GET /me/export — LATAM data portability (Ley 25.326 Argentina, LFPDPPP Mexico, Ley 1581 Colombia)
+// Returns all personal data stored for this user as JSON
+authRouter.get("/me/export", authMiddleware, async (c) => {
+  const { userId } = c.get("auth")
+
+  const [user, consent, payments] = await Promise.all([
+    db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    }),
+    db.userConsent.findUnique({ where: { userId }, select: { acceptedAt: true, version: true } }),
+    db.payment.findMany({
+      where: { merchant: { users: { some: { id: userId } } } },
+      select: { id: true, orderId: true, status: true, amount: true, currency: true, createdAt: true },
+      take: 1000,
+    }),
+  ])
+
+  if (!user) return c.json({ error: "User not found" }, 404)
+
+  const export_data = {
+    exportedAt: new Date().toISOString(),
+    user,
+    consent,
+    payments,
+  }
+
+  c.header("Content-Type", "application/json; charset=utf-8")
+  c.header("Content-Disposition", `attachment; filename="payflow-data-export-${userId}.json"`)
+  return c.json(export_data)
+})
+
+// DELETE /me — GDPR/LATAM right to erasure (soft delete + PII anonymization)
+// Payments are retained for accounting/legal obligations but stripped of personal identifiers
 authRouter.delete("/me", authMiddleware, async (c) => {
   const { userId } = c.get("auth")
   await db.user.update({

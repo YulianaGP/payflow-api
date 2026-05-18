@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useLocale, useTranslations } from "next-intl"
 import { useState } from "react"
-import { LayoutDashboard, CreditCard, Wallet, ArrowLeftRight, Settings, ChevronLeft, ChevronRight, Menu } from "lucide-react"
+import { LayoutDashboard, CreditCard, Wallet, ArrowLeftRight, Settings, ChevronLeft, ChevronRight, Menu, AlertTriangle, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -14,6 +14,8 @@ function useNavItems() {
   return [
     { href: "/dashboard",    icon: LayoutDashboard, label: t("title") },
     { href: "/payments",     icon: CreditCard,       label: t("payments") },
+    { href: "/disputes",     icon: AlertTriangle,    label: "Disputes" },
+    { href: "/invoices",     icon: FileText,         label: "Invoices" },
     { href: "/accounts",     icon: Wallet,           label: t("accounts") },
     { href: "/transactions", icon: ArrowLeftRight,   label: t("transactions") },
     { href: "/settings",     icon: Settings,         label: t("settings") },

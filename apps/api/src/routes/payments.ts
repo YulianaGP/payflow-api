@@ -7,6 +7,7 @@ import { CheckoutSchema } from "@payflow/payment-providers"
 import { db } from "../lib/db.js"
 import { authMiddleware, requireAdmin } from "../middlewares/auth.js"
 import { resolveProvider } from "../services/providerResolver.js"
+import { checkFraud, recordAttempt } from "../services/fraudService.js"
 import { paymentEventBus } from "../lib/paymentEvents.js"
 import type { PaymentStreamEvent } from "../lib/paymentEvents.js"
 // ServiceUnavailableError used inline in /stream connection limit check
@@ -20,6 +21,21 @@ paymentsRouter.post("/", zValidator("json", CheckoutSchema), async (c) => {
   const input = c.req.valid("json")
   const { merchantId } = c.get("auth")
 
+  const ip = c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "unknown"
+  const userAgent = c.req.header("user-agent")
+  const merchant = await db.merchant.findUnique({ where: { id: merchantId } })
+  if (!merchant) return c.json({ error: "Merchant not found" }, 404)
+
+  const providerName = merchant.paymentProvider as "mercadopago" | "stripe" | "mock"
+  const fraudCtx = { merchantId, email: input.customerEmail, ip, userAgent, amount: input.amount, currency: input.currency, provider: providerName }
+
+  // Fraud check before touching the provider — blocks repeat offenders before any API call
+  const fraud = await checkFraud(fraudCtx)
+  if (fraud.blocked) {
+    await recordAttempt({ ...fraudCtx, status: "blocked", blockReason: fraud.reason })
+    return c.json({ error: "Request blocked", code: "FRAUD_BLOCKED" }, 403)
+  }
+
   // Guard: prevent double-charge — if this orderId already has a SUCCESS, reject
   const existing = await db.payment.findUnique({
     where: { merchantId_orderId: { merchantId, orderId: input.orderId } },
@@ -28,13 +44,7 @@ paymentsRouter.post("/", zValidator("json", CheckoutSchema), async (c) => {
     return c.json({ error: "This order has already been paid" }, 409)
   }
 
-  const merchant = await db.merchant.findUnique({ where: { id: merchantId } })
-  if (!merchant) return c.json({ error: "Merchant not found" }, 404)
-
-  // Select provider based on payment.provider (not merchant — per ChatGPT feedback)
-  const providerName = merchant.paymentProvider as "mercadopago" | "stripe" | "mock"
   const provider = resolveProvider(providerName)
-
   const idempotencyKey = input.idempotencyKey ?? nanoid()
 
   // Check if provider already has a payment for this idempotency key
@@ -61,15 +71,19 @@ paymentsRouter.post("/", zValidator("json", CheckoutSchema), async (c) => {
     },
   })
 
-  await db.paymentAuditLog.create({
-    data: {
-      paymentId: payment.id,
-      fromStatus: "PENDING",
-      toStatus: "PENDING",
-      changedBy: "system",
-      metadata: { action: "payment_created", provider: providerName },
-    },
-  })
+  await Promise.all([
+    db.paymentAuditLog.create({
+      data: {
+        paymentId: payment.id,
+        fromStatus: "PENDING",
+        toStatus: "PENDING",
+        changedBy: "system",
+        metadata: { action: "payment_created", provider: providerName },
+      },
+    }),
+    // Record successful attempt for fraud baseline — fire-and-forget, never blocks the response
+    recordAttempt({ ...fraudCtx, paymentId: payment.id, status: "success" }).catch(() => {}),
+  ])
 
   return c.json({ id: payment.id, redirectUrl: result.redirectUrl, status: payment.status }, 201)
 })

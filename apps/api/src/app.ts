@@ -1,5 +1,4 @@
 import { Hono } from "hono"
-import { logger } from "hono/logger"
 import { cors } from "hono/cors"
 import { prettyJSON } from "hono/pretty-json"
 import { swaggerUI } from "@hono/swagger-ui"
@@ -12,13 +11,39 @@ import { accountsRouter } from "./routes/accounts.js"
 import { transactionsRouter } from "./routes/transactions.js"
 import { plansRouter } from "./routes/plans.js"
 import { subscriptionsRouter } from "./routes/subscriptions.js"
+import { disputesRouter } from "./routes/disputes.js"
 import { openApiSpec } from "./lib/openapi.js"
+import { securityHeaders } from "./middlewares/security.js"
+import { logger } from "./lib/logger.js"
+
+// Parse CORS_ORIGINS env var — comma-separated list of allowed origins.
+// Falls back to open in dev so curl / Postman work without extra config.
+const isDev = process.env["NODE_ENV"] !== "production"
+const allowedOrigins = process.env["CORS_ORIGINS"]
+  ? process.env["CORS_ORIGINS"].split(",").map((o) => o.trim())
+  : []
 
 export const app = new Hono()
 
-app.use("*", logger())
-app.use("*", cors()) // NOTE: open in dev — restricted to ALLOWED_ORIGINS on Day 28
+app.use("*", cors(
+  isDev || allowedOrigins.length === 0
+    ? { origin: "*" }
+    : {
+        origin: (origin) => (allowedOrigins.includes(origin) ? origin : null),
+        allowHeaders: ["Authorization", "Content-Type"],
+        allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        credentials: true,
+      }
+))
+app.use("*", securityHeaders)
 app.use("*", prettyJSON())
+
+// Request logging using pino — replaces hono/logger for structured output
+app.use("*", async (c, next) => {
+  const start = Date.now()
+  await next()
+  logger.info({ method: c.req.method, path: c.req.path, status: c.res.status, ms: Date.now() - start })
+})
 
 app.get("/", (c) => {
   return c.json({
@@ -45,3 +70,4 @@ app.route("/api/accounts", accountsRouter)
 app.route("/api/transactions", transactionsRouter)
 app.route("/api/plans", plansRouter)
 app.route("/api/subscriptions", subscriptionsRouter)
+app.route("/api/disputes", disputesRouter)
